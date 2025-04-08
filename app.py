@@ -37,7 +37,7 @@ def load_data(file):
 def create_forecast_plot(forecast_df, original_df):
     plt.figure(figsize=(10, 6))
     unique_ids = forecast_df['unique_id'].unique()
-    forecast_cols = [col for col in forecast_df.columns if col not in ['unique_id', 'ds']]
+    forecast_cols = [col for col in forecast_df.columns if col not in ['unique_id', 'ds', 'cutoff']]
 
     for unique_id in unique_ids:
         original_data = original_df[original_df['unique_id'] == unique_id]
@@ -172,9 +172,10 @@ with gr.Blocks(title="StatsForecast Demo") as app:
 
             frequency = gr.Dropdown(choices=["H", "D", "WS", "MS", "QS", "YS"], label="Frequency", value="D")
             eval_strategy = gr.Radio(choices=["Fixed Window", "Cross Validation"], label="Evaluation Strategy", value="Cross Validation")
-            horizon = gr.Slider(1, 100, value=14, label="Horizon")
-            step_size = gr.Slider(1, 50, value=5, label="Step Size")
-            num_windows = gr.Slider(1, 20, value=3, label="Number of Windows")
+            horizon = gr.Slider(1, 100, value=14, step=1, label="Horizon")
+            step_size = gr.Slider(1, 50, value=5, step=1, label="Step Size")
+            num_windows = gr.Slider(1, 20, value=3, step=1, label="Number of Windows")
+
 
             gr.Markdown("### Model Configuration")
             use_historical_avg = gr.Checkbox(label="Use Historical Average", value=True)
