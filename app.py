@@ -88,13 +88,13 @@ def run_forecast(
         models.append(Naive(alias='naive'))
         model_aliases.append('naive')
     if use_seasonal_naive:
-        models.append(SeasonalNaive(m=seasonality, alias='seasonal_naive'))
+        models.append(SeasonalNaive(season_length=seasonality, alias='seasonal_naive'))
         model_aliases.append('seasonal_naive')
     if use_window_avg:
         models.append(WindowAverage(window_size=window_size, alias='window_average'))
         model_aliases.append('window_average')
     if use_seasonal_window_avg:
-        models.append(SeasonalWindowAverage(m=seasonality, window_size=seasonal_window_size, alias='seasonal_window_average'))
+        models.append(SeasonalWindowAverage(season_length=seasonality, window_size=seasonal_window_size, alias='seasonal_window_average'))
         model_aliases.append('seasonal_window_average')
     if use_autoets:
         models.append(AutoETS(alias='autoets'))
