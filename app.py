@@ -126,24 +126,24 @@ def export_results(eval_df, cv_results, future_forecasts):
     # Create temp directory if it doesn't exist
     temp_dir = tempfile.mkdtemp()
     
-    files = {}
+    result_files = []
     
     if eval_df is not None:
         eval_path = os.path.join(temp_dir, f"evaluation_metrics_{timestamp}.csv")
         eval_df.to_csv(eval_path, index=False)
-        files["evaluation"] = eval_path
+        result_files.append(eval_path)
         
     if cv_results is not None:
         cv_path = os.path.join(temp_dir, f"cross_validation_results_{timestamp}.csv")
         cv_results.to_csv(cv_path, index=False)
-        files["validation"] = cv_path
+        result_files.append(cv_path)
         
     if future_forecasts is not None:
         forecast_path = os.path.join(temp_dir, f"forecasts_{timestamp}.csv")
         future_forecasts.to_csv(forecast_path, index=False)
-        files["forecast"] = forecast_path
+        result_files.append(forecast_path)
     
-    return files
+    return result_files
 
 # Main forecasting logic
 def run_forecast(
