@@ -2,7 +2,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import gradio as gr
 import tempfile
-import numpy as np
 from datetime import datetime
 
 from statsforecast import StatsForecast
@@ -39,32 +38,81 @@ def load_data(file):
 def create_forecast_plot(forecast_df, original_df, selected_cutoff=None):
     plt.figure(figsize=(10, 6))
     unique_ids = forecast_df['unique_id'].unique()
-    forecast_cols = [col for col in forecast_df.columns if col not in ['unique_id', 'ds', 'cutoff']]
     
-    # Filter by cutoff if provided and if 'cutoff' column exists
-    if selected_cutoff is not None and 'cutoff' in forecast_df.columns:
-        # Convert string cutoff to datetime if needed
-        if isinstance(selected_cutoff, str):
-            try:
-                selected_cutoff = pd.to_datetime(selected_cutoff)
-            except:
-                pass  # Keep as string if conversion fails
+    # Check if the DataFrame has a cutoff column (cross-validation format)
+    is_cv_format = 'cutoff' in forecast_df.columns
+    
+    if is_cv_format:
+        # For cross-validation format
+        cutoffs = forecast_df['cutoff'].unique()
         
-        # Try both string and datetime matching due to potential type differences
-        if isinstance(selected_cutoff, str):
-            # Try string matching
-            forecast_df = forecast_df[forecast_df['cutoff'].astype(str) == selected_cutoff]
+        # Use selected cutoff if provided, otherwise use the latest
+        if selected_cutoff is not None and selected_cutoff in cutoffs:
+            cutoff_to_use = selected_cutoff
         else:
-            # Try datetime matching
-            forecast_df = forecast_df[forecast_df['cutoff'] == selected_cutoff]
-    
-    for unique_id in unique_ids:
-        original_data = original_df[original_df['unique_id'] == unique_id]
-        plt.plot(original_data['ds'], original_data['y'], 'k-', label='Actual')
+            cutoff_to_use = max(cutoffs)
         
-        # Get forecast data for this ID
-        forecast_data = forecast_df[forecast_df['unique_id'] == unique_id]
-        if len(forecast_data) > 0:  # Only plot if there's data after filtering
+        # Get base model names without the horizon suffix
+        model_names = set()
+        for col in forecast_df.columns:
+            if col not in ['unique_id', 'ds', 'cutoff', 'y'] and '_' in col:
+                model_name = col.split('_')[0]
+                model_names.add(model_name)
+        
+        for unique_id in unique_ids:
+            # Filter forecast data for the selected cutoff
+            forecast_data = forecast_df[(forecast_df['unique_id'] == unique_id) & 
+                                      (forecast_df['cutoff'] == cutoff_to_use)]
+            
+            # Get original data
+            original_data = original_df[original_df['unique_id'] == unique_id].copy()
+            
+            # Determine the forecast horizon based on the available data
+            max_horizon = max([int(col.split('_')[1]) for col in forecast_data.columns 
+                             if '_' in col and col.split('_')[0] in model_names])
+            
+            # Split original data into "before cutoff" and "after cutoff"
+            train_data = original_data[original_data['ds'] <= cutoff_to_use]
+            test_data = original_data[original_data['ds'] > cutoff_to_use]
+            
+            # Limit test data to horizon length
+            test_data = test_data.iloc[:max_horizon]
+            
+            # Plot training data
+            plt.plot(train_data['ds'], train_data['y'], 'k-', label='Historical Data')
+            
+            # Plot test data (actual values during forecast period)
+            if not test_data.empty:
+                plt.plot(test_data['ds'], test_data['y'], 'k--', label='Actual (Test)')
+            
+            # Plot forecasts for each model
+            for model in model_names:
+                model_forecast_data = []
+                model_forecast_dates = []
+                
+                # Get columns for this model with different horizons
+                for h in range(1, max_horizon + 1):
+                    col = f"{model}_{h}"
+                    if col in forecast_data.columns:
+                        # There is only one row per unique_id and cutoff
+                        forecast_value = forecast_data[col].iloc[0] if not forecast_data.empty else None
+                        if forecast_value is not None:
+                            # Calculate the date for this horizon step
+                            forecast_date = cutoff_to_use + pd.Timedelta(days=h)
+                            model_forecast_dates.append(forecast_date)
+                            model_forecast_data.append(forecast_value)
+                
+                if model_forecast_data:
+                    plt.plot(model_forecast_dates, model_forecast_data, '-o', label=model)
+    
+    else:
+        # For fixed window format
+        forecast_cols = [col for col in forecast_df.columns if col not in ['unique_id', 'ds', 'cutoff', 'y']]
+        
+        for unique_id in unique_ids:
+            original_data = original_df[original_df['unique_id'] == unique_id]
+            plt.plot(original_data['ds'], original_data['y'], 'k-', label='Actual')
+            forecast_data = forecast_df[forecast_df['unique_id'] == unique_id]
             for col in forecast_cols:
                 if col in forecast_data.columns:
                     plt.plot(forecast_data['ds'], forecast_data[col], label=col)
@@ -77,16 +125,18 @@ def create_forecast_plot(forecast_df, original_df, selected_cutoff=None):
     fig = plt.gcf()
     return fig
 
-# Function to update plot based on selected cutoff
-def update_plot(selected_cutoff, cv_results, original_df):
-    if cv_results is None or original_df is None:
-        return None, "No forecast data available."
+# Function to update plot when cutoff is selected
+def update_plot(forecast_df, original_df, selected_cutoff):
+    if forecast_df is None or original_df is None:
+        return None
     
-    try:
-        fig = create_forecast_plot(cv_results, original_df, selected_cutoff)
-        return fig, f"Showing forecast for cutoff: {selected_cutoff}"
-    except Exception as e:
-        return None, f"Error updating plot: {str(e)}"
+    # Convert the selected cutoff string back to datetime if needed
+    if isinstance(selected_cutoff, str) and 'cutoff' in forecast_df.columns:
+        # If forecast_df cutoffs are datetime objects
+        if isinstance(forecast_df['cutoff'].iloc[0], pd.Timestamp):
+            selected_cutoff = pd.to_datetime(selected_cutoff)
+    
+    return create_forecast_plot(forecast_df, original_df, selected_cutoff)
 
 # Main forecasting logic
 def run_forecast(
@@ -109,7 +159,7 @@ def run_forecast(
 ):
     df, message = load_data(file)
     if df is None:
-        return None, None, None, None, [], message
+        return None, None, None, None, message, gr.Dropdown(visible=False)
 
     models = []
     model_aliases = []
@@ -137,7 +187,7 @@ def run_forecast(
         model_aliases.append('autoarima')
 
     if not models:
-        return None, None, None, None, [], "Please select at least one forecasting model"
+        return None, None, None, None, "Please select at least one forecasting model", gr.Dropdown(visible=False)
 
     sf = StatsForecast(models=models, freq=frequency, n_jobs=-1)
 
@@ -147,36 +197,27 @@ def run_forecast(
             evaluation = evaluate(df=cv_results, metrics=[bias, mae, rmse, mape], models=model_aliases)
             eval_df = pd.DataFrame(evaluation).reset_index()
             
-            # Convert cutoff dates to strings with consistent format for dropdown
-            cutoff_string_format = '%Y-%m-%d %H:%M:%S'
-            cutoff_strings = []
+            # Get the cutoff dates for the dropdown
+            cutoffs = sorted(cv_results['cutoff'].unique())
+            cutoff_strs = [str(cutoff) for cutoff in cutoffs]
             
-            if 'cutoff' in cv_results.columns:
-                # Get unique cutoffs and convert to strings
-                for cutoff in cv_results['cutoff'].unique():
-                    if pd.notna(cutoff):  # Skip NaN values
-                        if isinstance(cutoff, pd.Timestamp) or isinstance(cutoff, datetime):
-                            cutoff_str = cutoff.strftime(cutoff_string_format)
-                        else:
-                            cutoff_str = str(cutoff)
-                        cutoff_strings.append(cutoff_str)
-                
-                # Sort cutoff dates (newest first)
-                cutoff_strings.sort(reverse=True)
-                
-                # Create a first plot with no specific cutoff filter
-                fig_forecast = create_forecast_plot(cv_results, df)
-                
-                # Don't set initial value for dropdown - let Gradio handle it
-                return eval_df, cv_results, fig_forecast, df, cutoff_strings, "Cross validation completed successfully!"
-            else:
-                fig_forecast = create_forecast_plot(cv_results, df)
-                return eval_df, cv_results, fig_forecast, df, [], "Cross validation completed but no cutoff dates found."
+            # Create dropdown with cutoff dates
+            cutoff_dropdown = gr.Dropdown(
+                choices=cutoff_strs,
+                value=cutoff_strs[-1] if cutoff_strs else None,
+                label="Select Window Cutoff Date",
+                visible=True
+            )
+            
+            # Default to latest cutoff for initial plot
+            fig_forecast = create_forecast_plot(cv_results, df, cutoffs[-1] if cutoffs else None)
+            
+            return eval_df, cv_results, df, fig_forecast, "Cross validation completed successfully!", cutoff_dropdown
 
         else:  # Fixed window
             train_size = len(df) - horizon
             if train_size <= 0:
-                return None, None, None, None, [], f"Not enough data for horizon={horizon}"
+                return None, None, None, None, f"Not enough data for horizon={horizon}", gr.Dropdown(visible=False)
 
             train_df = df.iloc[:train_size]
             test_df = df.iloc[train_size:]
@@ -184,12 +225,16 @@ def run_forecast(
             forecast = sf.predict(h=horizon)
             evaluation = evaluate(df=forecast, metrics=[bias, mae, rmse, mape], models=model_aliases)
             eval_df = pd.DataFrame(evaluation).reset_index()
+            
+            # No cutoff dropdown needed for fixed window
+            cutoff_dropdown = gr.Dropdown(visible=False)
+            
             fig_forecast = create_forecast_plot(forecast, df)
-            # For fixed window, we don't have cutoff dates
-            return eval_df, forecast, fig_forecast, df, [], "Fixed window evaluation completed successfully!"
+            
+            return eval_df, forecast, df, fig_forecast, "Fixed window evaluation completed successfully!", cutoff_dropdown
 
     except Exception as e:
-        return None, None, None, None, [], f"Error during forecasting: {str(e)}"
+        return None, None, None, None, f"Error during forecasting: {str(e)}", gr.Dropdown(visible=False)
 
 # Sample CSV file generation
 def download_sample():
@@ -220,9 +265,9 @@ with gr.Blocks(title="StatsForecast Demo") as app:
     gr.Markdown("# 📈 StatsForecast Demo App")
     gr.Markdown("Upload a CSV with `unique_id`, `ds`, and `y` columns to apply forecasting models.")
 
-    # Store state variables
-    cv_results_state = gr.State(None)
+    # Store data for reuse between components
     original_df_state = gr.State(None)
+    forecast_df_state = gr.State(None)
 
     with gr.Row():
         with gr.Column(scale=2):
@@ -237,7 +282,6 @@ with gr.Blocks(title="StatsForecast Demo") as app:
             horizon = gr.Slider(1, 100, value=14, step=1, label="Horizon")
             step_size = gr.Slider(1, 50, value=5, step=1, label="Step Size")
             num_windows = gr.Slider(1, 20, value=3, step=1, label="Number of Windows")
-
 
             gr.Markdown("### Model Configuration")
             use_historical_avg = gr.Checkbox(label="Use Historical Average", value=True)
@@ -254,22 +298,19 @@ with gr.Blocks(title="StatsForecast Demo") as app:
             submit_btn = gr.Button("Run Forecast")
 
         with gr.Column(scale=3):
-            eval_output = gr.Dataframe(label="Evaluation Results")
-            forecast_output = gr.Dataframe(label="Forecast Data")
-            
-            # Add cutoff selection dropdown with no initial value
-            cutoff_dropdown = gr.Dropdown(
-                label="Select Validation Window (Cutoff Date)", 
+            # Add cutoff selector dropdown (initially hidden)
+            cutoff_selector = gr.Dropdown(
                 choices=[], 
-                interactive=True,
-                value=None,  # No default value initially
+                label="Select Window Cutoff Date", 
                 visible=False
             )
             
+            eval_output = gr.Dataframe(label="Evaluation Results")
+            forecast_output = gr.Dataframe(label="Forecast Data")
             plot_output = gr.Plot(label="Forecast Plot")
             message_output = gr.Textbox(label="Message")
 
-    # Run forecast function with updated outputs
+    # Run forecast button click event
     submit_btn.click(
         fn=run_forecast,
         inputs=[
@@ -278,24 +319,14 @@ with gr.Blocks(title="StatsForecast Demo") as app:
             use_window_avg, window_size, use_seasonal_window_avg, seasonal_window_size,
             use_autoets, use_autoarima
         ],
-        outputs=[eval_output, cv_results_state, plot_output, original_df_state, cutoff_dropdown, message_output]
+        outputs=[eval_output, forecast_df_state, original_df_state, plot_output, message_output, cutoff_selector]
     )
     
-    # Update cutoff dropdown visibility based on evaluation strategy
-    def update_dropdown_visibility(strategy):
-        return gr.update(visible=strategy == "Cross Validation")
-    
-    eval_strategy.change(
-        fn=update_dropdown_visibility,
-        inputs=[eval_strategy],
-        outputs=[cutoff_dropdown]
-    )
-    
-    # Update plot when cutoff is selected
-    cutoff_dropdown.change(
+    # Cutoff selector change event
+    cutoff_selector.change(
         fn=update_plot,
-        inputs=[cutoff_dropdown, cv_results_state, original_df_state],
-        outputs=[plot_output, message_output]
+        inputs=[forecast_df_state, original_df_state, cutoff_selector],
+        outputs=[plot_output]
     )
 
 if __name__ == "__main__":
