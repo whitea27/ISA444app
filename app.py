@@ -5,7 +5,7 @@ import tempfile
 
 from statsforecast import StatsForecast
 from statsforecast.models import (
-    HistoricalAverage,
+    HistoricAverage,
     Naive,
     SeasonalNaive,
     WindowAverage,
@@ -81,7 +81,7 @@ def run_forecast(
     model_aliases = []
 
     if use_historical_avg:
-        models.append(HistoricalAverage(alias='historical_average'))
+        models.append(HistoricAverage(alias='historical_average'))
         model_aliases.append('historical_average')
     if use_naive:
         models.append(Naive(alias='naive'))
