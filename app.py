@@ -40,7 +40,7 @@ def create_forecast_plot(forecast_df, original_df, window=None):
     forecast_cols = [col for col in forecast_df.columns if col not in ['unique_id', 'ds', 'cutoff']]
 
     if window is not None and 'cutoff' in forecast_df.columns:
-        forecast_df = forecast_df[forecast_df['cutoff'] == window]
+        forecast_df = forecast_df[forecast_df['cutoff'] == pd.to_datetime(window)]
 
     for unique_id in unique_ids:
         original_data = original_df[original_df['unique_id'] == unique_id]
@@ -116,7 +116,7 @@ def run_forecast(
             cv_results = sf.cross_validation(df=df, h=horizon, step_size=step_size, n_windows=num_windows)
             evaluation = evaluate(df=cv_results, metrics=[bias, mae, rmse, mape], models=model_aliases)
             eval_df = pd.DataFrame(evaluation).reset_index()
-            unique_cutoffs = sorted(cv_results['cutoff'].unique())
+            unique_cutoffs = sorted(str(c) for c in cv_results['cutoff'].unique())
             fig_forecast = create_forecast_plot(cv_results, df, window=unique_cutoffs[0])
             return eval_df, cv_results, fig_forecast, "Cross validation completed successfully!", unique_cutoffs
 
