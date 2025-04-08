@@ -148,7 +148,7 @@ def run_forecast(
             fig_validation = create_forecast_plot(cv_results, df, "Fixed Window Validation Results")
 
         # Generate future forecasts
-        future_forecasts = sf.forecast(df = df, h=horizon, level=[95])
+        future_forecasts = sf.forecast(df = df, h=horizon)
         fig_future = create_future_forecast_plot(future_forecasts, df)
         
         return eval_df, cv_results, fig_validation, future_forecasts, fig_future, "Analysis completed successfully!"
