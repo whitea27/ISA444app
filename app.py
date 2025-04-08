@@ -150,7 +150,24 @@ def run_forecast(
         # Generate future forecasts
         fitted_sf = StatsForecast(models=models, freq=frequency, n_jobs=-1)
         fitted_sf.fit(df)
-        future_forecasts = fitted_sf.forecast(h=future_horizon)
+        
+        # Create df_future with just unique_id and ds columns for future dates
+        last_date = df['ds'].max()
+        future_dates = pd.date_range(
+            start=last_date + pd.Timedelta(1, unit=frequency.lower()), 
+            periods=future_horizon,
+            freq=frequency
+        )
+        
+        df_future = pd.DataFrame()
+        for unique_id in df['unique_id'].unique():
+            temp = pd.DataFrame({
+                'unique_id': [unique_id] * future_horizon,
+                'ds': future_dates
+            })
+            df_future = pd.concat([df_future, temp])
+        
+        future_forecasts = fitted_sf.forecast(df=df_future)
         fig_future = create_future_forecast_plot(future_forecasts, df)
         
         return eval_df, cv_results, fig_validation, future_forecasts, fig_future, "Analysis completed successfully!"
