@@ -111,7 +111,7 @@ def run_forecast(
     try:
         if eval_strategy == "Cross Validation":
             cv_results = sf.cross_validation(df=df, h=horizon, step_size=step_size, n_windows=num_windows)
-            evaluation = evaluate(df=cv_results, metrics=[bias, made, rmse, mape], models=model_aliases)
+            evaluation = evaluate(df=cv_results, metrics=[bias, mae, rmse, mape], models=model_aliases)
             eval_df = pd.DataFrame(evaluation).reset_index()
             fig_forecast = create_forecast_plot(cv_results, df)
             return eval_df, cv_results, fig_forecast, "Cross validation completed successfully!"
@@ -125,7 +125,7 @@ def run_forecast(
             test_df = df.iloc[train_size:]
             sf.fit(train_df)
             forecast = sf.predict(h=horizon)
-            evaluation = evaluate(df=forecast, metrics=[bias, made, rmse, mape], models=model_aliases)
+            evaluation = evaluate(df=forecast, metrics=[bias, mae, rmse, mape], models=model_aliases)
             eval_df = pd.DataFrame(evaluation).reset_index()
             fig_forecast = create_forecast_plot(forecast, df)
             return eval_df, forecast, fig_forecast, "Fixed window evaluation completed successfully!"
