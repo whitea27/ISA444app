@@ -926,6 +926,8 @@ with gr.Blocks(title="Time Series Forecasting App", theme=theme) as app:
     with gr.Row(visible=True) as cv_row:
         step_size = gr.Slider(1, 50, value=10, step=1, label="Step Size")
         num_windows = gr.Slider(1, 20, value=5, step=1, label="Number of Windows")
+
+    with gr.Row(visible=True) as run_row:
         submit_btn = gr.Button("Run Validation and Forecast", variant="primary", size="lg")
     
     # Update visibility of step_size and num_windows based on eval_strategy
