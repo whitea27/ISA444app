@@ -2,7 +2,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import gradio as gr
 import tempfile
-from datetime import datetime
 
 from statsforecast import StatsForecast
 from statsforecast.models import (
@@ -35,126 +34,18 @@ def load_data(file):
         return None, f"Error loading data: {str(e)}"
 
 # Function to generate and return a plot
-def create_forecast_plot(forecast_df, original_df, selected_cutoff=None):
-    if forecast_df is None or original_df is None:
-        return None
-    
+def create_forecast_plot(forecast_df, original_df):
     plt.figure(figsize=(10, 6))
     unique_ids = forecast_df['unique_id'].unique()
-    
-    # Check if the DataFrame has a cutoff column (cross-validation format)
-    is_cv_format = 'cutoff' in forecast_df.columns
-    
-    if is_cv_format:
-        # For cross-validation format
-        cutoffs = forecast_df['cutoff'].unique()
-        
-        # Use selected cutoff if provided, otherwise use the latest
-        if selected_cutoff is not None and selected_cutoff in cutoffs:
-            cutoff_to_use = selected_cutoff
-        else:
-            cutoff_to_use = max(cutoffs)
-        
-        # Get model names - StatsForecast uses dash (-) not underscore (_)
-        model_names = set()
-        for col in forecast_df.columns:
-            if col not in ['unique_id', 'ds', 'cutoff', 'y'] and '-' in col:
-                model_name = col.split('-')[0]
-                model_names.add(model_name)
-        
-        # Print some debug info
-        print(f"Available columns: {forecast_df.columns.tolist()}")
-        print(f"Detected model names: {model_names}")
-        print(f"Selected cutoff: {cutoff_to_use}")
-        
-        for unique_id in unique_ids:
-            # Filter forecast data for the selected cutoff
-            forecast_data = forecast_df[(forecast_df['unique_id'] == unique_id) & 
-                                      (forecast_df['cutoff'] == cutoff_to_use)]
-            
-            if forecast_data.empty:
-                print(f"No forecast data for unique_id={unique_id} and cutoff={cutoff_to_use}")
-                continue
-                
-            # Get original data
-            original_data = original_df[original_df['unique_id'] == unique_id].copy()
-            
-            # Determine the forecast horizon based on the available data
-            horizons = []
-            for col in forecast_data.columns:
-                if '-' in col:
-                    try:
-                        h = int(col.split('-')[1])
-                        horizons.append(h)
-                    except (ValueError, IndexError):
-                        continue
-            
-            if not horizons:
-                print(f"No valid horizons found for models")
-                continue
-                
-            max_horizon = max(horizons)
-            
-            # Split original data into "before cutoff" and "after cutoff"
-            train_data = original_data[original_data['ds'] <= cutoff_to_use]
-            test_data = original_data[original_data['ds'] > cutoff_to_use]
-            
-            # Limit test data to horizon length
-            test_data = test_data.iloc[:max_horizon]
-            
-            # Plot training data
-            plt.plot(train_data['ds'], train_data['y'], 'k-', label='Historical Data')
-            
-            # Plot test data (actual values during forecast period)
-            if not test_data.empty:
-                plt.plot(test_data['ds'], test_data['y'], 'k--', label='Actual (Test)')
-            
-            # Plot forecasts for each model
-            for model in model_names:
-                model_forecast_data = []
-                model_forecast_dates = []
-                
-                # Get columns for this model with different horizons
-                for h in range(1, max_horizon + 1):
-                    col = f"{model}-{h}"
-                    if col in forecast_data.columns:
-                        # There is only one row per unique_id and cutoff
-                        forecast_value = forecast_data[col].iloc[0] if not forecast_data.empty else None
-                        if forecast_value is not None:
-                            # Calculate the date for this horizon step
-                            # Use the frequency from original data to set the timedelta
-                            if frequency == 'D':
-                                forecast_date = cutoff_to_use + pd.Timedelta(days=h)
-                            elif frequency == 'H':
-                                forecast_date = cutoff_to_use + pd.Timedelta(hours=h)
-                            elif frequency == 'WS':
-                                forecast_date = cutoff_to_use + pd.Timedelta(weeks=h)
-                            elif frequency == 'MS':
-                                forecast_date = cutoff_to_use + pd.DateOffset(months=h)
-                            elif frequency == 'QS':
-                                forecast_date = cutoff_to_use + pd.DateOffset(months=3*h)
-                            elif frequency == 'YS':
-                                forecast_date = cutoff_to_use + pd.DateOffset(years=h)
-                            else:
-                                forecast_date = cutoff_to_use + pd.Timedelta(days=h)
-                                
-                            model_forecast_dates.append(forecast_date)
-                            model_forecast_data.append(forecast_value)
-                
-                if model_forecast_data:
-                    plt.plot(model_forecast_dates, model_forecast_data, '-o', label=model)
-    
-    else:
-        # For fixed window format
-        forecast_cols = [col for col in forecast_df.columns if col not in ['unique_id', 'ds', 'cutoff', 'y']]
-        
-        for unique_id in unique_ids:
-            original_data = original_df[original_df['unique_id'] == unique_id]
-            plt.plot(original_data['ds'], original_data['y'], 'k-', label='Actual')
-            forecast_data = forecast_df[forecast_df['unique_id'] == unique_id]
-            for col in forecast_cols:
-                if col in forecast_data.columns:
-                    plt.plot(forecast_data['ds'], forecast_data[col], label=col)
+    forecast_cols = [col for col in forecast_df.columns if col not in ['unique_id', 'ds', 'cutoff']]
+
+    for unique_id in unique_ids:
+        original_data = original_df[original_df['unique_id'] == unique_id]
+        plt.plot(original_data['ds'], original_data['y'], 'k-', label='Actual')
+        forecast_data = forecast_df[forecast_df['unique_id'] == unique_id]
+        for col in forecast_cols:
+            if col in forecast_data.columns:
+                plt.plot(forecast_data['ds'], forecast_data[col], label=col)
 
     plt.title('Forecasting Results')
     plt.xlabel('Date')
@@ -164,26 +55,10 @@ def create_forecast_plot(forecast_df, original_df, selected_cutoff=None):
     fig = plt.gcf()
     return fig
 
-# Function to update plot when cutoff is selected
-def update_plot(forecast_df, original_df, selected_cutoff, freq):
-    if forecast_df is None or original_df is None:
-        return None
-    
-    # Convert the selected cutoff string back to datetime if needed
-    if isinstance(selected_cutoff, str) and 'cutoff' in forecast_df.columns:
-        # If forecast_df cutoffs are datetime objects
-        if isinstance(forecast_df['cutoff'].iloc[0], pd.Timestamp):
-            selected_cutoff = pd.to_datetime(selected_cutoff)
-    
-    return create_forecast_plot(forecast_df, original_df, selected_cutoff)
-
-# Global variable to store frequency
-frequency = 'D'
-
 # Main forecasting logic
 def run_forecast(
     file,
-    freq,
+    frequency,
     eval_strategy,
     horizon,
     step_size,
@@ -199,12 +74,9 @@ def run_forecast(
     use_autoets,
     use_autoarima
 ):
-    global frequency
-    frequency = freq  # Store for use in create_forecast_plot
-    
     df, message = load_data(file)
     if df is None:
-        return None, None, None, None, message, gr.Dropdown(visible=False), frequency
+        return None, None, None, message
 
     models = []
     model_aliases = []
@@ -232,7 +104,7 @@ def run_forecast(
         model_aliases.append('autoarima')
 
     if not models:
-        return None, None, None, None, "Please select at least one forecasting model", gr.Dropdown(visible=False), frequency
+        return None, None, None, "Please select at least one forecasting model"
 
     sf = StatsForecast(models=models, freq=frequency, n_jobs=-1)
 
@@ -241,28 +113,13 @@ def run_forecast(
             cv_results = sf.cross_validation(df=df, h=horizon, step_size=step_size, n_windows=num_windows)
             evaluation = evaluate(df=cv_results, metrics=[bias, mae, rmse, mape], models=model_aliases)
             eval_df = pd.DataFrame(evaluation).reset_index()
-            
-            # Get the cutoff dates for the dropdown
-            cutoffs = sorted(cv_results['cutoff'].unique())
-            cutoff_strs = [str(cutoff) for cutoff in cutoffs]
-            
-            # Create dropdown with cutoff dates
-            cutoff_dropdown = gr.Dropdown(
-                choices=cutoff_strs,
-                value=cutoff_strs[-1] if cutoff_strs else None,
-                label="Select Window Cutoff Date",
-                visible=True
-            )
-            
-            # Default to latest cutoff for initial plot
-            fig_forecast = create_forecast_plot(cv_results, df, cutoffs[-1] if cutoffs else None)
-            
-            return eval_df, cv_results, df, fig_forecast, "Cross validation completed successfully!", cutoff_dropdown, frequency
+            fig_forecast = create_forecast_plot(cv_results, df)
+            return eval_df, cv_results, fig_forecast, "Cross validation completed successfully!"
 
         else:  # Fixed window
             train_size = len(df) - horizon
             if train_size <= 0:
-                return None, None, None, None, f"Not enough data for horizon={horizon}", gr.Dropdown(visible=False), frequency
+                return None, None, None, f"Not enough data for horizon={horizon}"
 
             train_df = df.iloc[:train_size]
             test_df = df.iloc[train_size:]
@@ -270,16 +127,11 @@ def run_forecast(
             forecast = sf.predict(h=horizon)
             evaluation = evaluate(df=forecast, metrics=[bias, mae, rmse, mape], models=model_aliases)
             eval_df = pd.DataFrame(evaluation).reset_index()
-            
-            # No cutoff dropdown needed for fixed window
-            cutoff_dropdown = gr.Dropdown(visible=False)
-            
             fig_forecast = create_forecast_plot(forecast, df)
-            
-            return eval_df, forecast, df, fig_forecast, "Fixed window evaluation completed successfully!", cutoff_dropdown, frequency
+            return eval_df, forecast, fig_forecast, "Fixed window evaluation completed successfully!"
 
     except Exception as e:
-        return None, None, None, None, f"Error during forecasting: {str(e)}", gr.Dropdown(visible=False), frequency
+        return None, None, None, f"Error during forecasting: {str(e)}"
 
 # Sample CSV file generation
 def download_sample():
@@ -310,11 +162,6 @@ with gr.Blocks(title="StatsForecast Demo") as app:
     gr.Markdown("# 📈 StatsForecast Demo App")
     gr.Markdown("Upload a CSV with `unique_id`, `ds`, and `y` columns to apply forecasting models.")
 
-    # Store data for reuse between components
-    original_df_state = gr.State(None)
-    forecast_df_state = gr.State(None)
-    frequency_state = gr.State("D")
-
     with gr.Row():
         with gr.Column(scale=2):
             file_input = gr.File(label="Upload CSV file", file_types=[".csv"])
@@ -323,11 +170,12 @@ with gr.Blocks(title="StatsForecast Demo") as app:
             download_output = gr.File(label="Click to download", visible=True)
             download_btn.click(fn=download_sample, outputs=download_output)
 
-            freq_input = gr.Dropdown(choices=["H", "D", "WS", "MS", "QS", "YS"], label="Frequency", value="D")
+            frequency = gr.Dropdown(choices=["H", "D", "WS", "MS", "QS", "YS"], label="Frequency", value="D")
             eval_strategy = gr.Radio(choices=["Fixed Window", "Cross Validation"], label="Evaluation Strategy", value="Cross Validation")
             horizon = gr.Slider(1, 100, value=14, step=1, label="Horizon")
             step_size = gr.Slider(1, 50, value=5, step=1, label="Step Size")
             num_windows = gr.Slider(1, 20, value=3, step=1, label="Number of Windows")
+
 
             gr.Markdown("### Model Configuration")
             use_historical_avg = gr.Checkbox(label="Use Historical Average", value=True)
@@ -344,35 +192,20 @@ with gr.Blocks(title="StatsForecast Demo") as app:
             submit_btn = gr.Button("Run Forecast")
 
         with gr.Column(scale=3):
-            # Add cutoff selector dropdown (initially hidden)
-            cutoff_selector = gr.Dropdown(
-                choices=[], 
-                label="Select Window Cutoff Date", 
-                visible=False
-            )
-            
             eval_output = gr.Dataframe(label="Evaluation Results")
             forecast_output = gr.Dataframe(label="Forecast Data")
             plot_output = gr.Plot(label="Forecast Plot")
             message_output = gr.Textbox(label="Message")
 
-    # Run forecast button click event
     submit_btn.click(
         fn=run_forecast,
         inputs=[
-            file_input, freq_input, eval_strategy, horizon, step_size, num_windows,
+            file_input, frequency, eval_strategy, horizon, step_size, num_windows,
             use_historical_avg, use_naive, use_seasonal_naive, seasonality,
             use_window_avg, window_size, use_seasonal_window_avg, seasonal_window_size,
             use_autoets, use_autoarima
         ],
-        outputs=[eval_output, forecast_df_state, original_df_state, plot_output, message_output, cutoff_selector, frequency_state]
-    )
-    
-    # Cutoff selector change event
-    cutoff_selector.change(
-        fn=update_plot,
-        inputs=[forecast_df_state, original_df_state, cutoff_selector, frequency_state],
-        outputs=[plot_output]
+        outputs=[eval_output, forecast_output, plot_output, message_output]
     )
 
 if __name__ == "__main__":
