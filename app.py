@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import gradio as gr
 import tempfile
 import numpy as np
+from datetime import datetime
 
 from statsforecast import StatsForecast
 from statsforecast.models import (
@@ -42,11 +43,26 @@ def create_forecast_plot(forecast_df, original_df, selected_cutoff=None):
     
     # Filter by cutoff if provided and if 'cutoff' column exists
     if selected_cutoff is not None and 'cutoff' in forecast_df.columns:
-        forecast_df = forecast_df[forecast_df['cutoff'] == selected_cutoff]
+        # Convert string cutoff to datetime if needed
+        if isinstance(selected_cutoff, str):
+            try:
+                selected_cutoff = pd.to_datetime(selected_cutoff)
+            except:
+                pass  # Keep as string if conversion fails
+        
+        # Try both string and datetime matching due to potential type differences
+        if isinstance(selected_cutoff, str):
+            # Try string matching
+            forecast_df = forecast_df[forecast_df['cutoff'].astype(str) == selected_cutoff]
+        else:
+            # Try datetime matching
+            forecast_df = forecast_df[forecast_df['cutoff'] == selected_cutoff]
     
     for unique_id in unique_ids:
         original_data = original_df[original_df['unique_id'] == unique_id]
         plt.plot(original_data['ds'], original_data['y'], 'k-', label='Actual')
+        
+        # Get forecast data for this ID
         forecast_data = forecast_df[forecast_df['unique_id'] == unique_id]
         if len(forecast_data) > 0:  # Only plot if there's data after filtering
             for col in forecast_cols:
@@ -67,10 +83,6 @@ def update_plot(selected_cutoff, cv_results, original_df):
         return None, "No forecast data available."
     
     try:
-        # Convert string back to datetime if needed
-        if isinstance(selected_cutoff, str):
-            selected_cutoff = pd.to_datetime(selected_cutoff)
-        
         fig = create_forecast_plot(cv_results, original_df, selected_cutoff)
         return fig, f"Showing forecast for cutoff: {selected_cutoff}"
     except Exception as e:
@@ -135,20 +147,31 @@ def run_forecast(
             evaluation = evaluate(df=cv_results, metrics=[bias, mae, rmse, mape], models=model_aliases)
             eval_df = pd.DataFrame(evaluation).reset_index()
             
-            # Get unique cutoff dates for the dropdown
-            cutoff_dates = cv_results['cutoff'].unique().tolist()
+            # Convert cutoff dates to strings with consistent format for dropdown
+            cutoff_string_format = '%Y-%m-%d %H:%M:%S'
+            cutoff_strings = []
             
-            # Sort cutoff dates (newest first)
-            cutoff_dates.sort(reverse=True)
-            
-            # Use the most recent cutoff for initial plot
-            if cutoff_dates:
-                latest_cutoff = cutoff_dates[0]
-                fig_forecast = create_forecast_plot(cv_results, df, latest_cutoff)
-            else:
+            if 'cutoff' in cv_results.columns:
+                # Get unique cutoffs and convert to strings
+                for cutoff in cv_results['cutoff'].unique():
+                    if pd.notna(cutoff):  # Skip NaN values
+                        if isinstance(cutoff, pd.Timestamp) or isinstance(cutoff, datetime):
+                            cutoff_str = cutoff.strftime(cutoff_string_format)
+                        else:
+                            cutoff_str = str(cutoff)
+                        cutoff_strings.append(cutoff_str)
+                
+                # Sort cutoff dates (newest first)
+                cutoff_strings.sort(reverse=True)
+                
+                # Create a first plot with no specific cutoff filter
                 fig_forecast = create_forecast_plot(cv_results, df)
                 
-            return eval_df, cv_results, fig_forecast, df, cutoff_dates, "Cross validation completed successfully!"
+                # Don't set initial value for dropdown - let Gradio handle it
+                return eval_df, cv_results, fig_forecast, df, cutoff_strings, "Cross validation completed successfully!"
+            else:
+                fig_forecast = create_forecast_plot(cv_results, df)
+                return eval_df, cv_results, fig_forecast, df, [], "Cross validation completed but no cutoff dates found."
 
         else:  # Fixed window
             train_size = len(df) - horizon
@@ -234,11 +257,12 @@ with gr.Blocks(title="StatsForecast Demo") as app:
             eval_output = gr.Dataframe(label="Evaluation Results")
             forecast_output = gr.Dataframe(label="Forecast Data")
             
-            # Add cutoff selection dropdown
+            # Add cutoff selection dropdown with no initial value
             cutoff_dropdown = gr.Dropdown(
                 label="Select Validation Window (Cutoff Date)", 
                 choices=[], 
                 interactive=True,
+                value=None,  # No default value initially
                 visible=False
             )
             
