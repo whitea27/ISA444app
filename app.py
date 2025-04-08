@@ -47,7 +47,7 @@ def create_forecast_plot(forecast_df, original_df):
             if col in forecast_data.columns:
                 plt.plot(forecast_data['ds'], forecast_data[col], label=col)
 
-    plt.title('Forecasting Results')
+    plt.title('Results')
     plt.xlabel('Date')
     plt.ylabel('Value')
     plt.legend()
@@ -186,8 +186,8 @@ with gr.Blocks(title="StatsForecast Demo") as app:
 
         with gr.Column(scale=3):
             eval_output = gr.Dataframe(label="Evaluation Results")
-            forecast_output = gr.Dataframe(label="Forecast Data")
-            plot_output = gr.Plot(label="Forecast Plot")
+            forecast_output = gr.Dataframe(label="Detailed Evaluation Results")
+            plot_output = gr.Plot(label="Plotting the Actual and the Evaluation Results")
             message_output = gr.Textbox(label="Message")
 
     submit_btn.click(
