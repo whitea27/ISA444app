@@ -15,7 +15,7 @@ from statsforecast.models import (
 )
 
 from utilsforecast.evaluation import evaluate
-from utilsforecast.losses import *
+from utilsforecast.losses import *  # Assuming you need the metrics like bias, mae, rmse, mape
 
 # Function to load and process uploaded CSV
 def load_data(file):
@@ -33,19 +33,14 @@ def load_data(file):
     except Exception as e:
         return None, f"Error loading data: {str(e)}"
 
-
-# Global store to hold cross-validation forecasts
-forecast_store = {}
-
-# Function to generate and return a plot
-
+# Function to generate and return a plot for a specific cross-validation window
 def create_forecast_plot(forecast_df, original_df, window=None):
     plt.figure(figsize=(10, 6))
     unique_ids = forecast_df['unique_id'].unique()
-        if window is not None and 'cutoff' in forecast_df.columns:
-        forecast_df = forecast_df[forecast_df['cutoff'] == window]
-
     forecast_cols = [col for col in forecast_df.columns if col not in ['unique_id', 'ds', 'cutoff']]
+
+    if window is not None and 'cutoff' in forecast_df.columns:
+        forecast_df = forecast_df[forecast_df['cutoff'] == window]
 
     for unique_id in unique_ids:
         original_data = original_df[original_df['unique_id'] == unique_id]
@@ -55,7 +50,7 @@ def create_forecast_plot(forecast_df, original_df, window=None):
             if col in forecast_data.columns:
                 plt.plot(forecast_data['ds'], forecast_data[col], label=col)
 
-    plt.title('Forecasting Results')
+    plt.title(f'Forecasting Results{" (Window: " + str(window) + ")" if window else ""}')
     plt.xlabel('Date')
     plt.ylabel('Value')
     plt.legend()
@@ -84,7 +79,7 @@ def run_forecast(
 ):
     df, message = load_data(file)
     if df is None:
-        return None, None, None, message
+        return None, None, None, message, []
 
     models = []
     model_aliases = []
@@ -112,7 +107,7 @@ def run_forecast(
         model_aliases.append('autoarima')
 
     if not models:
-        return None, None, None, "Please select at least one forecasting model"
+        return None, None, None, "Please select at least one forecasting model", []
 
     sf = StatsForecast(models=models, freq=frequency, n_jobs=-1)
 
@@ -121,7 +116,6 @@ def run_forecast(
             cv_results = sf.cross_validation(df=df, h=horizon, step_size=step_size, n_windows=num_windows)
             evaluation = evaluate(df=cv_results, metrics=[bias, mae, rmse, mape], models=model_aliases)
             eval_df = pd.DataFrame(evaluation).reset_index()
-            forecast_store['cv'] = {'forecast': cv_results, 'original': df}
             unique_cutoffs = sorted(cv_results['cutoff'].unique())
             fig_forecast = create_forecast_plot(cv_results, df, window=unique_cutoffs[0])
             return eval_df, cv_results, fig_forecast, "Cross validation completed successfully!", unique_cutoffs
@@ -129,7 +123,7 @@ def run_forecast(
         else:  # Fixed window
             train_size = len(df) - horizon
             if train_size <= 0:
-                return None, None, None, f"Not enough data for horizon={horizon}"
+                return None, None, None, f"Not enough data for horizon={horizon}", []
 
             train_df = df.iloc[:train_size]
             test_df = df.iloc[train_size:]
@@ -141,16 +135,7 @@ def run_forecast(
             return eval_df, forecast, fig_forecast, "Fixed window evaluation completed successfully!", []
 
     except Exception as e:
-        return None, None, None, f"Error during forecasting: {str(e)}"
-
-
-# Function to update forecast plot for selected CV window
-def update_forecast_plot(selected_window):
-    data = forecast_store.get('cv')
-    if not data:
-        return None
-    return create_forecast_plot(data['forecast'], data['original'], window=selected_window)
-
+        return None, None, None, f"Error during forecasting: {str(e)}", []
 
 # Sample CSV file generation
 def download_sample():
@@ -211,14 +196,11 @@ with gr.Blocks(title="StatsForecast Demo") as app:
             submit_btn = gr.Button("Run Forecast")
 
         with gr.Column(scale=3):
-            window_selector = gr.Dropdown(label='Select CV Window', choices=[], visible=False)
             eval_output = gr.Dataframe(label="Evaluation Results")
             forecast_output = gr.Dataframe(label="Forecast Data")
             plot_output = gr.Plot(label="Forecast Plot")
             message_output = gr.Textbox(label="Message")
-
-    def handle_forecast_output(eval_df, forecast_df, plot, msg, windows):
-    return eval_df, forecast_df, plot, msg, gr.update(choices=[str(w) for w in windows], visible=bool(windows), value=str(windows[0]) if windows else None)
+            window_selector = gr.Dropdown(label="Select Forecast Window", choices=[], visible=False)
 
     submit_btn.click(
         fn=run_forecast,
@@ -231,8 +213,7 @@ with gr.Blocks(title="StatsForecast Demo") as app:
         outputs=[eval_output, forecast_output, plot_output, message_output, window_selector]
     )
 
+    window_selector.change(fn=create_forecast_plot, inputs=window_selector, outputs=plot_output)
+
 if __name__ == "__main__":
     app.launch(share=False)
-
-# Update plot when a window is selected
-window_selector.change(fn=update_forecast_plot, inputs=window_selector, outputs=plot_output)
