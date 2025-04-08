@@ -117,17 +117,10 @@ def run_forecast(
             return eval_df, cv_results, fig_forecast, "Cross validation completed successfully!"
 
         else:  # Fixed window
-            train_size = len(df) - horizon
-            if train_size <= 0:
-                return None, None, None, f"Not enough data for horizon={horizon}"
-
-            train_df = df.iloc[:train_size]
-            test_df = df.iloc[train_size:]
-            sf.fit(train_df)
-            forecast = sf.predict(h=horizon)
-            evaluation = evaluate(df=forecast, metrics=[bias, mae, rmse, mape], models=model_aliases)
+            cv_results = sf.cross_validation(df=df, h=horizon, step_size=10, n_windows=1) # any step size will do since it is only 1 window
+            evaluation = evaluate(df=cv_results, metrics=[bias, mae, rmse, mape], models=model_aliases)
             eval_df = pd.DataFrame(evaluation).reset_index()
-            fig_forecast = create_forecast_plot(forecast, df)
+            fig_forecast = create_forecast_plot(cv_results, df)
             return eval_df, forecast, fig_forecast, "Fixed window evaluation completed successfully!"
 
     except Exception as e:
