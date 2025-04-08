@@ -227,36 +227,36 @@ def run_forecast(
 # Sample CSV file generation
 def download_sample():
     sample_data = """unique_id,ds,y
-series1,2025-01-01,100
-series1,2025-01-02,105
-series1,2025-01-03,102
-series1,2025-01-04,107
-series1,2025-01-05,104
-series1,2025-01-06,110
-series1,2025-01-07,108
-series1,2025-01-08,112
-series1,2025-01-09,115
-series1,2025-01-10,118
-series1,2025-01-11,120
-series1,2025-01-12,123
-series1,2025-01-13,126
-series1,2025-01-14,129
-series1,2025-01-15,131
-series2,2025-01-01,200
-series2,2025-01-02,195
-series2,2025-01-03,205
-series2,2025-01-04,210
-series2,2025-01-05,215
-series2,2025-01-06,212
-series2,2025-01-07,208
-series2,2025-01-08,215
-series2,2025-01-09,220
-series2,2025-01-10,218
-series2,2025-01-11,225
-series2,2025-01-12,230
-series2,2025-01-13,235
-series2,2025-01-14,232
-series2,2025-01-15,240
+series1,2023-01-01,100
+series1,2023-01-02,105
+series1,2023-01-03,102
+series1,2023-01-04,107
+series1,2023-01-05,104
+series1,2023-01-06,110
+series1,2023-01-07,108
+series1,2023-01-08,112
+series1,2023-01-09,115
+series1,2023-01-10,118
+series1,2023-01-11,120
+series1,2023-01-12,123
+series1,2023-01-13,126
+series1,2023-01-14,129
+series1,2023-01-15,131
+series2,2023-01-01,200
+series2,2023-01-02,195
+series2,2023-01-03,205
+series2,2023-01-04,210
+series2,2023-01-05,215
+series2,2023-01-06,212
+series2,2023-01-07,208
+series2,2023-01-08,215
+series2,2023-01-09,220
+series2,2023-01-10,218
+series2,2023-01-11,225
+series2,2023-01-12,230
+series2,2023-01-13,235
+series2,2023-01-14,232
+series2,2023-01-15,240
 """
     temp = tempfile.NamedTemporaryFile(delete=False, suffix=".csv", mode='w', newline='')
     temp.write(sample_data)
@@ -307,9 +307,7 @@ with gr.Blocks(title="Time Series Forecasting App", theme=theme) as app:
                     horizon = gr.Slider(1, 100, value=10, step=1, label="Validation Horizon")
                     future_horizon = gr.Slider(1, 100, value=20, step=1, label="Future Forecast Horizon")
                 
-                with gr.Row(visible=lambda: eval_strategy == "Cross Validation"):
-                    step_size = gr.Slider(1, 50, value=10, step=1, label="Step Size")
-                    num_windows = gr.Slider(1, 20, value=3, step=1, label="Number of Windows")
+                # Cross validation settings will be defined after the main UI elements
 
             with gr.Accordion("Model Configuration", open=True):
                 gr.Markdown("### Basic Models")
@@ -394,11 +392,19 @@ with gr.Blocks(title="Time Series Forecasting App", theme=theme) as app:
                 with gr.TabItem("Export Results"):
                     export_files = gr.Files(label="Download Results")
 
+    # Create a special Row for cross-validation settings
+    with gr.Row(visible=True) as cv_row:
+        step_size = gr.Slider(1, 50, value=10, step=1, label="Step Size")
+        num_windows = gr.Slider(1, 20, value=3, step=1, label="Number of Windows")
+    
     # Update visibility of step_size and num_windows based on eval_strategy
+    def update_cv_visibility(strategy):
+        return gr.update(visible=strategy == "Cross Validation")
+        
     eval_strategy.change(
-        fn=lambda x: gr.update(visible=x == "Cross Validation"),
+        fn=update_cv_visibility,
         inputs=[eval_strategy],
-        outputs=[gr.Row.update(visible=lambda: eval_strategy == "Cross Validation")]
+        outputs=[cv_row]
     )
 
     # Run forecast when button is clicked
