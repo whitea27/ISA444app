@@ -15,9 +15,10 @@ from statsforecast.models import (
 )
 
 from utilsforecast.evaluation import evaluate
-from utilsforecast.losses import *  # Assuming you need the metrics like bias, mae, rmse, mape
+from utilsforecast.losses import *
 
-# Function to load and process uploaded CSV
+forecast_store = {}  # for storing CV results globally
+
 def load_data(file):
     if file is None:
         return None, "Please upload a CSV file"
@@ -33,7 +34,6 @@ def load_data(file):
     except Exception as e:
         return None, f"Error loading data: {str(e)}"
 
-# Function to generate and return a plot for a specific cross-validation window
 def create_forecast_plot(forecast_df, original_df, window=None):
     plt.figure(figsize=(10, 6))
     unique_ids = forecast_df['unique_id'].unique()
@@ -55,10 +55,8 @@ def create_forecast_plot(forecast_df, original_df, window=None):
     plt.ylabel('Value')
     plt.legend()
     plt.grid(True)
-    fig = plt.gcf()
-    return fig
+    return plt.gcf()
 
-# Main forecasting logic
 def run_forecast(
     file,
     frequency,
@@ -114,13 +112,21 @@ def run_forecast(
     try:
         if eval_strategy == "Cross Validation":
             cv_results = sf.cross_validation(df=df, h=horizon, step_size=step_size, n_windows=num_windows)
+
+            # Store for dropdown selection
+            forecast_store['forecast'] = cv_results
+            forecast_store['original'] = df
+
             evaluation = evaluate(df=cv_results, metrics=[bias, mae, rmse, mape], models=model_aliases)
             eval_df = pd.DataFrame(evaluation).reset_index()
+
+            # Dropdown cutoffs
             unique_cutoffs = sorted(str(c) for c in cv_results['cutoff'].unique())
-            fig_forecast = create_forecast_plot(cv_results, df, window=unique_cutoffs[0])
+            fig_forecast = create_forecast_plot(cv_results, df, window=pd.to_datetime(unique_cutoffs[0]))
+
             return eval_df, cv_results, fig_forecast, "Cross validation completed successfully!", unique_cutoffs
 
-        else:  # Fixed window
+        else:
             train_size = len(df) - horizon
             if train_size <= 0:
                 return None, None, None, f"Not enough data for horizon={horizon}", []
@@ -137,7 +143,13 @@ def run_forecast(
     except Exception as e:
         return None, None, None, f"Error during forecasting: {str(e)}", []
 
-# Sample CSV file generation
+def update_window_plot(window_str):
+    if 'forecast' not in forecast_store:
+        return None
+    forecast_df = forecast_store['forecast']
+    original_df = forecast_store['original']
+    return create_forecast_plot(forecast_df, original_df, window=pd.to_datetime(window_str))
+
 def download_sample():
     sample_data = """unique_id,ds,y
 series1,2023-01-01,100
@@ -161,7 +173,6 @@ series1,2023-01-15,131
     temp.close()
     return temp.name
 
-# Gradio interface
 with gr.Blocks(title="StatsForecast Demo") as app:
     gr.Markdown("# 📈 StatsForecast Demo App")
     gr.Markdown("Upload a CSV with `unique_id`, `ds`, and `y` columns to apply forecasting models.")
@@ -169,25 +180,23 @@ with gr.Blocks(title="StatsForecast Demo") as app:
     with gr.Row():
         with gr.Column(scale=2):
             file_input = gr.File(label="Upload CSV file", file_types=[".csv"])
-
             download_btn = gr.Button("Download Sample Data")
             download_output = gr.File(label="Click to download", visible=True)
             download_btn.click(fn=download_sample, outputs=download_output)
 
             frequency = gr.Dropdown(choices=["H", "D", "WS", "MS", "QS", "YS"], label="Frequency", value="D")
             eval_strategy = gr.Radio(choices=["Fixed Window", "Cross Validation"], label="Evaluation Strategy", value="Cross Validation")
-            horizon = gr.Slider(1, 100, value=14, step=1, label="Horizon")
+            horizon = gr.Slider(1, 100, value=10, step=1, label="Horizon")
             step_size = gr.Slider(1, 50, value=5, step=1, label="Step Size")
             num_windows = gr.Slider(1, 20, value=3, step=1, label="Number of Windows")
-
 
             gr.Markdown("### Model Configuration")
             use_historical_avg = gr.Checkbox(label="Use Historical Average", value=True)
             use_naive = gr.Checkbox(label="Use Naive", value=True)
             use_seasonal_naive = gr.Checkbox(label="Use Seasonal Naive")
-            seasonality = gr.Number(label="Seasonality", value=7)
+            seasonality = gr.Number(label="Seasonality", value=5)
             use_window_avg = gr.Checkbox(label="Use Window Average")
-            window_size = gr.Number(label="Window Size", value=3)
+            window_size = gr.Number(label="Window Size", value=10)
             use_seasonal_window_avg = gr.Checkbox(label="Use Seasonal Window Average")
             seasonal_window_size = gr.Number(label="Seasonal Window Size", value=2)
             use_autoets = gr.Checkbox(label="Use AutoETS")
@@ -210,10 +219,12 @@ with gr.Blocks(title="StatsForecast Demo") as app:
             use_window_avg, window_size, use_seasonal_window_avg, seasonal_window_size,
             use_autoets, use_autoarima
         ],
-        outputs=[eval_output, forecast_output, plot_output, message_output, window_selector]
+        outputs=[
+            eval_output, forecast_output, plot_output, message_output, window_selector
+        ]
     )
 
-    window_selector.change(fn=create_forecast_plot, inputs=window_selector, outputs=plot_output)
+    window_selector.change(fn=update_window_plot, inputs=window_selector, outputs=plot_output)
 
 if __name__ == "__main__":
     app.launch(share=False)
