@@ -56,8 +56,11 @@ def create_forecast_plot(forecast_df, original_df, selected_cutoff=None):
         model_names = set()
         for col in forecast_df.columns:
             if col not in ['unique_id', 'ds', 'cutoff', 'y'] and '_' in col:
-                model_name = col.split('_')[0]
-                model_names.add(model_name)
+                parts = col.split('_')
+                if len(parts) >= 2:
+                    # Get the base model name (everything before the last underscore)
+                    model_name = '_'.join(parts[:-1])
+                    model_names.add(model_name)
         
         for unique_id in unique_ids:
             # Filter forecast data for the selected cutoff
@@ -67,9 +70,23 @@ def create_forecast_plot(forecast_df, original_df, selected_cutoff=None):
             # Get original data
             original_data = original_df[original_df['unique_id'] == unique_id].copy()
             
-            # Determine the forecast horizon based on the available data
-            max_horizon = max([int(col.split('_')[1]) for col in forecast_data.columns 
-                             if '_' in col and col.split('_')[0] in model_names])
+            # Try to determine the forecast horizon
+            max_horizon = 0
+            for col in forecast_data.columns:
+                if col not in ['unique_id', 'ds', 'cutoff', 'y'] and '_' in col:
+                    parts = col.split('_')
+                    if len(parts) >= 2:
+                        # Try to get the horizon value (the last part after underscore)
+                        try:
+                            h = int(parts[-1])
+                            max_horizon = max(max_horizon, h)
+                        except ValueError:
+                            # Skip if we can't convert to integer
+                            continue
+            
+            # If we couldn't determine horizon, use a default value
+            if max_horizon == 0:
+                max_horizon = 14  # Default to 14 if we can't determine
             
             # Split original data into "before cutoff" and "after cutoff"
             train_data = original_data[original_data['ds'] <= cutoff_to_use]
@@ -279,17 +296,17 @@ with gr.Blocks(title="StatsForecast Demo") as app:
 
             frequency = gr.Dropdown(choices=["H", "D", "WS", "MS", "QS", "YS"], label="Frequency", value="D")
             eval_strategy = gr.Radio(choices=["Fixed Window", "Cross Validation"], label="Evaluation Strategy", value="Cross Validation")
-            horizon = gr.Slider(1, 100, value=14, step=1, label="Horizon")
-            step_size = gr.Slider(1, 50, value=5, step=1, label="Step Size")
+            horizon = gr.Slider(1, 100, value=10, step=1, label="Horizon")
+            step_size = gr.Slider(1, 50, value=10, step=1, label="Step Size")
             num_windows = gr.Slider(1, 20, value=3, step=1, label="Number of Windows")
 
             gr.Markdown("### Model Configuration")
             use_historical_avg = gr.Checkbox(label="Use Historical Average", value=True)
             use_naive = gr.Checkbox(label="Use Naive", value=True)
             use_seasonal_naive = gr.Checkbox(label="Use Seasonal Naive")
-            seasonality = gr.Number(label="Seasonality", value=7)
+            seasonality = gr.Number(label="Seasonality", value=5)
             use_window_avg = gr.Checkbox(label="Use Window Average")
-            window_size = gr.Number(label="Window Size", value=3)
+            window_size = gr.Number(label="Window Size", value=10)
             use_seasonal_window_avg = gr.Checkbox(label="Use Seasonal Window Average")
             seasonal_window_size = gr.Number(label="Seasonal Window Size", value=2)
             use_autoets = gr.Checkbox(label="Use AutoETS")
