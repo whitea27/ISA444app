@@ -148,26 +148,7 @@ def run_forecast(
             fig_validation = create_forecast_plot(cv_results, df, "Fixed Window Validation Results")
 
         # Generate future forecasts
-        fitted_sf = StatsForecast(models=models, freq=frequency, n_jobs=-1)
-        fitted_sf.fit(df)
-        
-        # Create df_future with just unique_id and ds columns for future dates
-        last_date = df['ds'].max()
-        future_dates = pd.date_range(
-            start=last_date + pd.Timedelta(1, unit=frequency.lower()), 
-            periods=future_horizon,
-            freq=frequency
-        )
-        
-        df_future = pd.DataFrame()
-        for unique_id in df['unique_id'].unique():
-            temp = pd.DataFrame({
-                'unique_id': [unique_id] * future_horizon,
-                'ds': future_dates
-            })
-            df_future = pd.concat([df_future, temp])
-        
-        future_forecasts = fitted_sf.forecast(df=df_future)
+        future_forecasts = sf.forecast(df = df, h=horizon, level=[95])
         fig_future = create_future_forecast_plot(future_forecasts, df)
         
         return eval_df, cv_results, fig_validation, future_forecasts, fig_future, "Analysis completed successfully!"
@@ -200,8 +181,8 @@ series1,2023-01-15,131
     return temp.name
 
 # Gradio interface
-with gr.Blocks(title="StatsForecast Demo") as app:
-    gr.Markdown("# 📈 StatsForecast Demo App")
+with gr.Blocks(title="Extrapolative Forecasts for One or Many Time Series") as app:
+    gr.Markdown("# 📈 Baselining without Exogenous Variables")
     gr.Markdown("Upload a CSV with `unique_id`, `ds`, and `y` columns to apply forecasting models.")
 
     with gr.Row():
