@@ -33,10 +33,18 @@ def load_data(file):
     except Exception as e:
         return None, f"Error loading data: {str(e)}"
 
+
+# Global store to hold cross-validation forecasts
+forecast_store = {}
+
 # Function to generate and return a plot
-def create_forecast_plot(forecast_df, original_df):
+
+def create_forecast_plot(forecast_df, original_df, window=None):
     plt.figure(figsize=(10, 6))
     unique_ids = forecast_df['unique_id'].unique()
+        if window is not None and 'cutoff' in forecast_df.columns:
+        forecast_df = forecast_df[forecast_df['cutoff'] == window]
+
     forecast_cols = [col for col in forecast_df.columns if col not in ['unique_id', 'ds', 'cutoff']]
 
     for unique_id in unique_ids:
@@ -113,8 +121,10 @@ def run_forecast(
             cv_results = sf.cross_validation(df=df, h=horizon, step_size=step_size, n_windows=num_windows)
             evaluation = evaluate(df=cv_results, metrics=[bias, mae, rmse, mape], models=model_aliases)
             eval_df = pd.DataFrame(evaluation).reset_index()
-            fig_forecast = create_forecast_plot(cv_results, df)
-            return eval_df, cv_results, fig_forecast, "Cross validation completed successfully!"
+            forecast_store['cv'] = {'forecast': cv_results, 'original': df}
+            unique_cutoffs = sorted(cv_results['cutoff'].unique())
+            fig_forecast = create_forecast_plot(cv_results, df, window=unique_cutoffs[0])
+            return eval_df, cv_results, fig_forecast, "Cross validation completed successfully!", unique_cutoffs
 
         else:  # Fixed window
             train_size = len(df) - horizon
@@ -128,10 +138,19 @@ def run_forecast(
             evaluation = evaluate(df=forecast, metrics=[bias, mae, rmse, mape], models=model_aliases)
             eval_df = pd.DataFrame(evaluation).reset_index()
             fig_forecast = create_forecast_plot(forecast, df)
-            return eval_df, forecast, fig_forecast, "Fixed window evaluation completed successfully!"
+            return eval_df, forecast, fig_forecast, "Fixed window evaluation completed successfully!", []
 
     except Exception as e:
         return None, None, None, f"Error during forecasting: {str(e)}"
+
+
+# Function to update forecast plot for selected CV window
+def update_forecast_plot(selected_window):
+    data = forecast_store.get('cv')
+    if not data:
+        return None
+    return create_forecast_plot(data['forecast'], data['original'], window=selected_window)
+
 
 # Sample CSV file generation
 def download_sample():
@@ -192,10 +211,14 @@ with gr.Blocks(title="StatsForecast Demo") as app:
             submit_btn = gr.Button("Run Forecast")
 
         with gr.Column(scale=3):
+            window_selector = gr.Dropdown(label='Select CV Window', choices=[], visible=False)
             eval_output = gr.Dataframe(label="Evaluation Results")
             forecast_output = gr.Dataframe(label="Forecast Data")
             plot_output = gr.Plot(label="Forecast Plot")
             message_output = gr.Textbox(label="Message")
+
+    def handle_forecast_output(eval_df, forecast_df, plot, msg, windows):
+    return eval_df, forecast_df, plot, msg, gr.update(choices=[str(w) for w in windows], visible=bool(windows), value=str(windows[0]) if windows else None)
 
     submit_btn.click(
         fn=run_forecast,
@@ -205,8 +228,11 @@ with gr.Blocks(title="StatsForecast Demo") as app:
             use_window_avg, window_size, use_seasonal_window_avg, seasonal_window_size,
             use_autoets, use_autoarima
         ],
-        outputs=[eval_output, forecast_output, plot_output, message_output]
+        outputs=[eval_output, forecast_output, plot_output, message_output, window_selector]
     )
 
 if __name__ == "__main__":
     app.launch(share=False)
+
+# Update plot when a window is selected
+window_selector.change(fn=update_forecast_plot, inputs=window_selector, outputs=plot_output)
