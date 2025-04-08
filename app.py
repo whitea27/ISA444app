@@ -2,6 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import gradio as gr
 import tempfile
+import numpy as np
 
 from statsforecast import StatsForecast
 from statsforecast.models import (
@@ -17,8 +18,7 @@ from statsforecast.models import (
 from utilsforecast.evaluation import evaluate
 from utilsforecast.losses import *
 
-forecast_store = {}  # for storing CV results globally
-
+# Function to load and process uploaded CSV
 def load_data(file):
     if file is None:
         return None, "Please upload a CSV file"
@@ -34,29 +34,49 @@ def load_data(file):
     except Exception as e:
         return None, f"Error loading data: {str(e)}"
 
-def create_forecast_plot(forecast_df, original_df, window=None):
+# Function to generate and return a plot
+def create_forecast_plot(forecast_df, original_df, selected_cutoff=None):
     plt.figure(figsize=(10, 6))
     unique_ids = forecast_df['unique_id'].unique()
     forecast_cols = [col for col in forecast_df.columns if col not in ['unique_id', 'ds', 'cutoff']]
-
-    if window is not None and 'cutoff' in forecast_df.columns:
-        forecast_df = forecast_df[forecast_df['cutoff'] == pd.to_datetime(window)]
-
+    
+    # Filter by cutoff if provided and if 'cutoff' column exists
+    if selected_cutoff is not None and 'cutoff' in forecast_df.columns:
+        forecast_df = forecast_df[forecast_df['cutoff'] == selected_cutoff]
+    
     for unique_id in unique_ids:
         original_data = original_df[original_df['unique_id'] == unique_id]
         plt.plot(original_data['ds'], original_data['y'], 'k-', label='Actual')
         forecast_data = forecast_df[forecast_df['unique_id'] == unique_id]
-        for col in forecast_cols:
-            if col in forecast_data.columns:
-                plt.plot(forecast_data['ds'], forecast_data[col], label=col)
+        if len(forecast_data) > 0:  # Only plot if there's data after filtering
+            for col in forecast_cols:
+                if col in forecast_data.columns:
+                    plt.plot(forecast_data['ds'], forecast_data[col], label=col)
 
-    plt.title(f'Forecasting Results{" (Window: " + str(window) + ")" if window else ""}')
+    plt.title('Forecasting Results')
     plt.xlabel('Date')
     plt.ylabel('Value')
     plt.legend()
     plt.grid(True)
-    return plt.gcf()
+    fig = plt.gcf()
+    return fig
 
+# Function to update plot based on selected cutoff
+def update_plot(selected_cutoff, cv_results, original_df):
+    if cv_results is None or original_df is None:
+        return None, "No forecast data available."
+    
+    try:
+        # Convert string back to datetime if needed
+        if isinstance(selected_cutoff, str):
+            selected_cutoff = pd.to_datetime(selected_cutoff)
+        
+        fig = create_forecast_plot(cv_results, original_df, selected_cutoff)
+        return fig, f"Showing forecast for cutoff: {selected_cutoff}"
+    except Exception as e:
+        return None, f"Error updating plot: {str(e)}"
+
+# Main forecasting logic
 def run_forecast(
     file,
     frequency,
@@ -77,7 +97,7 @@ def run_forecast(
 ):
     df, message = load_data(file)
     if df is None:
-        return None, None, None, message, []
+        return None, None, None, None, [], message
 
     models = []
     model_aliases = []
@@ -105,31 +125,35 @@ def run_forecast(
         model_aliases.append('autoarima')
 
     if not models:
-        return None, None, None, "Please select at least one forecasting model", []
+        return None, None, None, None, [], "Please select at least one forecasting model"
 
     sf = StatsForecast(models=models, freq=frequency, n_jobs=-1)
 
     try:
         if eval_strategy == "Cross Validation":
             cv_results = sf.cross_validation(df=df, h=horizon, step_size=step_size, n_windows=num_windows)
-
-            # Store for dropdown selection
-            forecast_store['forecast'] = cv_results
-            forecast_store['original'] = df
-
             evaluation = evaluate(df=cv_results, metrics=[bias, mae, rmse, mape], models=model_aliases)
             eval_df = pd.DataFrame(evaluation).reset_index()
+            
+            # Get unique cutoff dates for the dropdown
+            cutoff_dates = cv_results['cutoff'].unique().tolist()
+            
+            # Sort cutoff dates (newest first)
+            cutoff_dates.sort(reverse=True)
+            
+            # Use the most recent cutoff for initial plot
+            if cutoff_dates:
+                latest_cutoff = cutoff_dates[0]
+                fig_forecast = create_forecast_plot(cv_results, df, latest_cutoff)
+            else:
+                fig_forecast = create_forecast_plot(cv_results, df)
+                
+            return eval_df, cv_results, fig_forecast, df, cutoff_dates, "Cross validation completed successfully!"
 
-            # Dropdown cutoffs
-            unique_cutoffs = sorted(str(c) for c in cv_results['cutoff'].unique())
-            fig_forecast = create_forecast_plot(cv_results, df, window=pd.to_datetime(unique_cutoffs[0]))
-
-            return eval_df, cv_results, fig_forecast, "Cross validation completed successfully!", unique_cutoffs
-
-        else:
+        else:  # Fixed window
             train_size = len(df) - horizon
             if train_size <= 0:
-                return None, None, None, f"Not enough data for horizon={horizon}", []
+                return None, None, None, None, [], f"Not enough data for horizon={horizon}"
 
             train_df = df.iloc[:train_size]
             test_df = df.iloc[train_size:]
@@ -138,18 +162,13 @@ def run_forecast(
             evaluation = evaluate(df=forecast, metrics=[bias, mae, rmse, mape], models=model_aliases)
             eval_df = pd.DataFrame(evaluation).reset_index()
             fig_forecast = create_forecast_plot(forecast, df)
-            return eval_df, forecast, fig_forecast, "Fixed window evaluation completed successfully!", []
+            # For fixed window, we don't have cutoff dates
+            return eval_df, forecast, fig_forecast, df, [], "Fixed window evaluation completed successfully!"
 
     except Exception as e:
-        return None, None, None, f"Error during forecasting: {str(e)}", []
+        return None, None, None, None, [], f"Error during forecasting: {str(e)}"
 
-def update_window_plot(window_str):
-    if 'forecast' not in forecast_store:
-        return None
-    forecast_df = forecast_store['forecast']
-    original_df = forecast_store['original']
-    return create_forecast_plot(forecast_df, original_df, window=pd.to_datetime(window_str))
-
+# Sample CSV file generation
 def download_sample():
     sample_data = """unique_id,ds,y
 series1,2023-01-01,100
@@ -173,30 +192,37 @@ series1,2023-01-15,131
     temp.close()
     return temp.name
 
+# Gradio interface
 with gr.Blocks(title="StatsForecast Demo") as app:
     gr.Markdown("# 📈 StatsForecast Demo App")
     gr.Markdown("Upload a CSV with `unique_id`, `ds`, and `y` columns to apply forecasting models.")
 
+    # Store state variables
+    cv_results_state = gr.State(None)
+    original_df_state = gr.State(None)
+
     with gr.Row():
         with gr.Column(scale=2):
             file_input = gr.File(label="Upload CSV file", file_types=[".csv"])
+
             download_btn = gr.Button("Download Sample Data")
             download_output = gr.File(label="Click to download", visible=True)
             download_btn.click(fn=download_sample, outputs=download_output)
 
             frequency = gr.Dropdown(choices=["H", "D", "WS", "MS", "QS", "YS"], label="Frequency", value="D")
             eval_strategy = gr.Radio(choices=["Fixed Window", "Cross Validation"], label="Evaluation Strategy", value="Cross Validation")
-            horizon = gr.Slider(1, 100, value=10, step=1, label="Horizon")
+            horizon = gr.Slider(1, 100, value=14, step=1, label="Horizon")
             step_size = gr.Slider(1, 50, value=5, step=1, label="Step Size")
             num_windows = gr.Slider(1, 20, value=3, step=1, label="Number of Windows")
+
 
             gr.Markdown("### Model Configuration")
             use_historical_avg = gr.Checkbox(label="Use Historical Average", value=True)
             use_naive = gr.Checkbox(label="Use Naive", value=True)
             use_seasonal_naive = gr.Checkbox(label="Use Seasonal Naive")
-            seasonality = gr.Number(label="Seasonality", value=5)
+            seasonality = gr.Number(label="Seasonality", value=7)
             use_window_avg = gr.Checkbox(label="Use Window Average")
-            window_size = gr.Number(label="Window Size", value=10)
+            window_size = gr.Number(label="Window Size", value=3)
             use_seasonal_window_avg = gr.Checkbox(label="Use Seasonal Window Average")
             seasonal_window_size = gr.Number(label="Seasonal Window Size", value=2)
             use_autoets = gr.Checkbox(label="Use AutoETS")
@@ -207,10 +233,19 @@ with gr.Blocks(title="StatsForecast Demo") as app:
         with gr.Column(scale=3):
             eval_output = gr.Dataframe(label="Evaluation Results")
             forecast_output = gr.Dataframe(label="Forecast Data")
+            
+            # Add cutoff selection dropdown
+            cutoff_dropdown = gr.Dropdown(
+                label="Select Validation Window (Cutoff Date)", 
+                choices=[], 
+                interactive=True,
+                visible=False
+            )
+            
             plot_output = gr.Plot(label="Forecast Plot")
             message_output = gr.Textbox(label="Message")
-            window_selector = gr.Dropdown(label="Select Forecast Window", choices=[], visible=False)
 
+    # Run forecast function with updated outputs
     submit_btn.click(
         fn=run_forecast,
         inputs=[
@@ -219,12 +254,25 @@ with gr.Blocks(title="StatsForecast Demo") as app:
             use_window_avg, window_size, use_seasonal_window_avg, seasonal_window_size,
             use_autoets, use_autoarima
         ],
-        outputs=[
-            eval_output, forecast_output, plot_output, message_output, window_selector
-        ]
+        outputs=[eval_output, cv_results_state, plot_output, original_df_state, cutoff_dropdown, message_output]
     )
-
-    window_selector.change(fn=update_window_plot, inputs=window_selector, outputs=plot_output)
+    
+    # Update cutoff dropdown visibility based on evaluation strategy
+    def update_dropdown_visibility(strategy):
+        return gr.update(visible=strategy == "Cross Validation")
+    
+    eval_strategy.change(
+        fn=update_dropdown_visibility,
+        inputs=[eval_strategy],
+        outputs=[cutoff_dropdown]
+    )
+    
+    # Update plot when cutoff is selected
+    cutoff_dropdown.change(
+        fn=update_plot,
+        inputs=[cutoff_dropdown, cv_results_state, original_df_state],
+        outputs=[plot_output, message_output]
+    )
 
 if __name__ == "__main__":
     app.launch(share=False)
