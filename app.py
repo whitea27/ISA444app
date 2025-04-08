@@ -34,7 +34,7 @@ def load_data(file):
         return None, f"Error loading data: {str(e)}"
 
 # Function to generate and return a plot
-def create_forecast_plot(forecast_df, original_df):
+def create_forecast_plot(forecast_df, original_df, title="Forecasting Results"):
     plt.figure(figsize=(10, 6))
     unique_ids = forecast_df['unique_id'].unique()
     forecast_cols = [col for col in forecast_df.columns if col not in ['unique_id', 'ds', 'cutoff']]
@@ -47,7 +47,32 @@ def create_forecast_plot(forecast_df, original_df):
             if col in forecast_data.columns:
                 plt.plot(forecast_data['ds'], forecast_data[col], label=col)
 
-    plt.title('Results')
+    plt.title(title)
+    plt.xlabel('Date')
+    plt.ylabel('Value')
+    plt.legend()
+    plt.grid(True)
+    fig = plt.gcf()
+    return fig
+
+# Function to create a plot for future forecasts
+def create_future_forecast_plot(forecast_df, original_df):
+    plt.figure(figsize=(10, 6))
+    unique_ids = forecast_df['unique_id'].unique()
+    forecast_cols = [col for col in forecast_df.columns if col not in ['unique_id', 'ds']]
+
+    for unique_id in unique_ids:
+        # Plot historical data
+        original_data = original_df[original_df['unique_id'] == unique_id]
+        plt.plot(original_data['ds'], original_data['y'], 'k-', label='Historical')
+        
+        # Plot forecast data
+        forecast_data = forecast_df[forecast_df['unique_id'] == unique_id]
+        for col in forecast_cols:
+            if col in forecast_data.columns:
+                plt.plot(forecast_data['ds'], forecast_data[col], label=col)
+
+    plt.title('Future Forecast')
     plt.xlabel('Date')
     plt.ylabel('Value')
     plt.legend()
@@ -72,11 +97,12 @@ def run_forecast(
     use_seasonal_window_avg,
     seasonal_window_size,
     use_autoets,
-    use_autoarima
+    use_autoarima,
+    future_horizon
 ):
     df, message = load_data(file)
     if df is None:
-        return None, None, None, message
+        return None, None, None, None, None, message
 
     models = []
     model_aliases = []
@@ -104,27 +130,33 @@ def run_forecast(
         model_aliases.append('autoarima')
 
     if not models:
-        return None, None, None, "Please select at least one forecasting model"
+        return None, None, None, None, None, "Please select at least one forecasting model"
 
     sf = StatsForecast(models=models, freq=frequency, n_jobs=-1)
 
     try:
+        # Run cross-validation
         if eval_strategy == "Cross Validation":
             cv_results = sf.cross_validation(df=df, h=horizon, step_size=step_size, n_windows=num_windows)
             evaluation = evaluate(df=cv_results, metrics=[bias, mae, rmse, mape], models=model_aliases)
             eval_df = pd.DataFrame(evaluation).reset_index()
-            fig_forecast = create_forecast_plot(cv_results, df)
-            return eval_df, cv_results, fig_forecast, "Cross validation completed successfully!"
-
+            fig_validation = create_forecast_plot(cv_results, df, "Cross Validation Results")
         else:  # Fixed window
-            cv_results = sf.cross_validation(df=df, h=horizon, step_size=10, n_windows=1) # any step size will do since it is only 1 window
+            cv_results = sf.cross_validation(df=df, h=horizon, step_size=10, n_windows=1)  # any step size for 1 window
             evaluation = evaluate(df=cv_results, metrics=[bias, mae, rmse, mape], models=model_aliases)
             eval_df = pd.DataFrame(evaluation).reset_index()
-            fig_forecast = create_forecast_plot(cv_results, df)
-            return eval_df, cv_results, fig_forecast, "Fixed window evaluation completed successfully!"
+            fig_validation = create_forecast_plot(cv_results, df, "Fixed Window Validation Results")
+
+        # Generate future forecasts
+        fitted_sf = StatsForecast(models=models, freq=frequency, n_jobs=-1)
+        fitted_sf.fit(df)
+        future_forecasts = fitted_sf.forecast(h=future_horizon)
+        fig_future = create_future_forecast_plot(future_forecasts, df)
+        
+        return eval_df, cv_results, fig_validation, future_forecasts, fig_future, "Analysis completed successfully!"
 
     except Exception as e:
-        return None, None, None, f"Error during forecasting: {str(e)}"
+        return None, None, None, None, None, f"Error during forecasting: {str(e)}"
 
 # Sample CSV file generation
 def download_sample():
@@ -163,32 +195,49 @@ with gr.Blocks(title="StatsForecast Demo") as app:
             download_output = gr.File(label="Click to download", visible=True)
             download_btn.click(fn=download_sample, outputs=download_output)
 
-            frequency = gr.Dropdown(choices=["H", "D", "WS", "MS", "QS", "YS"], label="Frequency", value="D")
-            eval_strategy = gr.Radio(choices=["Fixed Window", "Cross Validation"], label="Evaluation Strategy", value="Cross Validation")
-            horizon = gr.Slider(1, 100, value=10, step=1, label="Horizon")
-            step_size = gr.Slider(1, 50, value=10, step=1, label="Step Size")
-            num_windows = gr.Slider(1, 20, value=3, step=1, label="Number of Windows")
+            with gr.Accordion("Data & Validation Settings", open=True):
+                frequency = gr.Dropdown(choices=["H", "D", "WS", "MS", "QS", "YS"], label="Frequency", value="D")
+                eval_strategy = gr.Radio(choices=["Fixed Window", "Cross Validation"], label="Evaluation Strategy", value="Cross Validation")
+                horizon = gr.Slider(1, 100, value=10, step=1, label="Validation Horizon")
+                step_size = gr.Slider(1, 50, value=10, step=1, label="Step Size")
+                num_windows = gr.Slider(1, 20, value=3, step=1, label="Number of Windows")
 
+            with gr.Accordion("Forecast Settings", open=True):
+                future_horizon = gr.Slider(1, 100, value=20, step=1, label="Future Forecast Horizon")
 
-            gr.Markdown("### Model Configuration")
-            use_historical_avg = gr.Checkbox(label="Use Historical Average", value=True)
-            use_naive = gr.Checkbox(label="Use Naive", value=True)
-            use_seasonal_naive = gr.Checkbox(label="Use Seasonal Naive")
-            seasonality = gr.Number(label="Seasonality", value=10)
-            use_window_avg = gr.Checkbox(label="Use Window Average")
-            window_size = gr.Number(label="Window Size", value=3)
-            use_seasonal_window_avg = gr.Checkbox(label="Use Seasonal Window Average")
-            seasonal_window_size = gr.Number(label="Seasonal Window Size", value=2)
-            use_autoets = gr.Checkbox(label="Use AutoETS")
-            use_autoarima = gr.Checkbox(label="Use AutoARIMA")
+            with gr.Accordion("Model Configuration", open=True):
+                use_historical_avg = gr.Checkbox(label="Use Historical Average", value=True)
+                use_naive = gr.Checkbox(label="Use Naive", value=True)
+                
+                with gr.Row():
+                    use_seasonal_naive = gr.Checkbox(label="Use Seasonal Naive")
+                    seasonality = gr.Number(label="Seasonality", value=10)
+                
+                with gr.Row():
+                    use_window_avg = gr.Checkbox(label="Use Window Average")
+                    window_size = gr.Number(label="Window Size", value=3)
+                
+                with gr.Row():
+                    use_seasonal_window_avg = gr.Checkbox(label="Use Seasonal Window Average")
+                    seasonal_window_size = gr.Number(label="Seasonal Window Size", value=2)
+                
+                use_autoets = gr.Checkbox(label="Use AutoETS")
+                use_autoarima = gr.Checkbox(label="Use AutoARIMA")
 
-            submit_btn = gr.Button("Run Forecast")
+            submit_btn = gr.Button("Run Forecast", variant="primary")
 
         with gr.Column(scale=3):
-            eval_output = gr.Dataframe(label="Evaluation Results")
-            forecast_output = gr.Dataframe(label="Detailed Evaluation Results")
-            plot_output = gr.Plot(label="Plotting the Actual and the Evaluation Results")
-            message_output = gr.Textbox(label="Message")
+            message_output = gr.Textbox(label="Status Message")
+            
+            with gr.Tabs() as tabs:
+                with gr.TabItem("Validation Results"):
+                    eval_output = gr.Dataframe(label="Evaluation Metrics")
+                    validation_output = gr.Dataframe(label="Validation Data")
+                    validation_plot = gr.Plot(label="Validation Plot")
+                
+                with gr.TabItem("Future Forecast"):
+                    forecast_output = gr.Dataframe(label="Future Forecast Data")
+                    forecast_plot = gr.Plot(label="Future Forecast Plot")
 
     submit_btn.click(
         fn=run_forecast,
@@ -196,9 +245,9 @@ with gr.Blocks(title="StatsForecast Demo") as app:
             file_input, frequency, eval_strategy, horizon, step_size, num_windows,
             use_historical_avg, use_naive, use_seasonal_naive, seasonality,
             use_window_avg, window_size, use_seasonal_window_avg, seasonal_window_size,
-            use_autoets, use_autoarima
+            use_autoets, use_autoarima, future_horizon
         ],
-        outputs=[eval_output, forecast_output, plot_output, message_output]
+        outputs=[eval_output, validation_output, validation_plot, forecast_output, forecast_plot, message_output]
     )
 
 if __name__ == "__main__":
