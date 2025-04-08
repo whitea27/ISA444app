@@ -121,7 +121,7 @@ def run_forecast(
             evaluation = evaluate(df=cv_results, metrics=[bias, mae, rmse, mape], models=model_aliases)
             eval_df = pd.DataFrame(evaluation).reset_index()
             fig_forecast = create_forecast_plot(cv_results, df)
-            return eval_df, forecast, fig_forecast, "Fixed window evaluation completed successfully!"
+            return eval_df, cv_results, fig_forecast, "Fixed window evaluation completed successfully!"
 
     except Exception as e:
         return None, None, None, f"Error during forecasting: {str(e)}"
@@ -165,8 +165,8 @@ with gr.Blocks(title="StatsForecast Demo") as app:
 
             frequency = gr.Dropdown(choices=["H", "D", "WS", "MS", "QS", "YS"], label="Frequency", value="D")
             eval_strategy = gr.Radio(choices=["Fixed Window", "Cross Validation"], label="Evaluation Strategy", value="Cross Validation")
-            horizon = gr.Slider(1, 100, value=14, step=1, label="Horizon")
-            step_size = gr.Slider(1, 50, value=5, step=1, label="Step Size")
+            horizon = gr.Slider(1, 100, value=10, step=1, label="Horizon")
+            step_size = gr.Slider(1, 50, value=10, step=1, label="Step Size")
             num_windows = gr.Slider(1, 20, value=3, step=1, label="Number of Windows")
 
 
@@ -174,7 +174,7 @@ with gr.Blocks(title="StatsForecast Demo") as app:
             use_historical_avg = gr.Checkbox(label="Use Historical Average", value=True)
             use_naive = gr.Checkbox(label="Use Naive", value=True)
             use_seasonal_naive = gr.Checkbox(label="Use Seasonal Naive")
-            seasonality = gr.Number(label="Seasonality", value=7)
+            seasonality = gr.Number(label="Seasonality", value=10)
             use_window_avg = gr.Checkbox(label="Use Window Average")
             window_size = gr.Number(label="Window Size", value=3)
             use_seasonal_window_avg = gr.Checkbox(label="Use Seasonal Window Average")
