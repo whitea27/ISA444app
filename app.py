@@ -188,10 +188,10 @@ def run_forecast(
         models.append(SeasonalWindowAverage(season_length=seasonality, window_size=seasonal_window_size, alias='seasonal_window_average'))
         model_aliases.append('seasonal_window_average')
     if use_autoets:
-        models.append(AutoETS(alias='autoets'))
+        models.append(AutoETS(alias='autoets', season_length=seasonality))
         model_aliases.append('autoets')
     if use_autoarima:
-        models.append(AutoARIMA(alias='autoarima'))
+        models.append(AutoARIMA(alias='autoarima', season_length=seasonality))
         model_aliases.append('autoarima')
 
     if not models:
