@@ -740,9 +740,8 @@ theme = None  # adjust or import your theme
 with gr.Blocks(title="Time Series Forecasting App", theme=theme) as app:
     gr.Markdown("# 📈 Time Series Forecasting App")
     gr.Markdown(
-        "> **Disclaimer:** For simplicity, external predictors (covariates) are not supported in this demo. "
-        "However, you can include them by passing an `X_df` to StatsForecast (via `sf.forecast(...)`) "
-        "or to TimeGPT via `X_df=` in `nixtla_client.forecast(...)`.")
+        "> **Disclaimer:** For simplicity, external predictors (covariates) are not supported in this app. "
+        "However, they are supported by the `AutoARIMA()` model in *statsforecast* and the `TimeGPT` model from *nixtla*.")
 
     with gr.Row():
         with gr.Column(scale=2):
