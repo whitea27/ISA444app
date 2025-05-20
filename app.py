@@ -349,6 +349,7 @@ def run_forecast(
             # Store results
             combined_eval_df = eval_df.copy() if eval_df is not None else pd.DataFrame()
             combined_cv_results = cv_results.copy() if cv_results is not None else pd.DataFrame()
+            combined_cv_results = combined_cv_results.round({col: 2 for col in combined_cv_results.columns[3:]})
             combined_future_forecasts = future_forecasts.copy() if future_forecasts is not None else pd.DataFrame()
         
         # Run TimeGPT if selected
@@ -1258,9 +1259,7 @@ with gr.Blocks(title="Time Series Forecasting App", theme=theme) as app:
         ],
         outputs=[
             eval_output, 
-            validation_output.round({
-                col: 2 
-                for col in eval_output.columns[3:]}), 
+            validation_output,
             validation_plot, 
             forecast_output, 
             forecast_plot, 
