@@ -52,6 +52,7 @@ def create_forecast_plot(forecast_df, original_df, title="Forecasting Results"):
     forecast_cols = [col for col in forecast_df.columns if col not in ['unique_id', 'ds', 'cutoff']]
     
     colors = plt.cm.tab10.colors
+    min_cutoff = None
     
     for i, unique_id in enumerate(unique_ids):
         original_data = original_df[original_df['unique_id'] == unique_id]
@@ -257,16 +258,14 @@ def run_forecast(
                     timegpt_cv_df = nixtla_client.cross_validation(
                         df=df, 
                         h=horizon, 
-                        freq=frequency, 
-                        level=level, 
+                        freq=frequency,
                         n_windows=num_windows, 
                         step_size=step_size
                     )
                     timegpt_cv_eval = evaluate(
                         df=timegpt_cv_df, 
                         metrics=[mape, mae, rmse, bias], 
-                        models=['TimeGPT'], 
-                        level=level
+                        models=['TimeGPT'],
                     )
                     timegpt_eval_df = pd.DataFrame(timegpt_cv_eval).reset_index()
                 else:  # Fixed window
@@ -274,15 +273,13 @@ def run_forecast(
                         df=df, 
                         h=horizon, 
                         freq=frequency, 
-                        level=level, 
                         n_windows=1, 
                         step_size=10
                     )
                     timegpt_cv_eval = evaluate(
                         df=timegpt_cv_df, 
                         metrics=[mape, mae, rmse, bias], 
-                        models=['TimeGPT'], 
-                        level=level
+                        models=['TimeGPT']
                     )
                     timegpt_eval_df = pd.DataFrame(timegpt_cv_eval).reset_index()
                 
@@ -290,8 +287,7 @@ def run_forecast(
                 forecast_timegpt = nixtla_client.forecast(
                     df=df, 
                     h=future_horizon, 
-                    freq=frequency, 
-                    level=level,
+                    freq=frequency,
                     finetune_loss=finetune_loss
                 )
                 
@@ -985,7 +981,7 @@ with gr.Blocks(title="Time Series Forecasting App", theme=theme) as app:
                         ("Yearly", "YS")
                     ], 
                     label="Data Frequency", 
-                    value="B"
+                    value="D"
                 )
                 
                 # Evaluation Strategy
