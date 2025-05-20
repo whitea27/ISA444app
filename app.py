@@ -382,6 +382,7 @@ def run_forecast(
                         models=['TimeGPT'],
                     )
                     timegpt_eval_df = pd.DataFrame(timegpt_cv_eval).reset_index()
+                    timegpt_eval_df = timegpt_eval_df.round({col: 2 for col in timegpt_eval_df.columns[3:]})
                 else:  # Fixed window
                     timegpt_cv_df = nixtla_client.cross_validation(
                         df=df, 
