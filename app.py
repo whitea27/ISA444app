@@ -34,6 +34,7 @@ def load_data(file):
             return None, f"Missing required columns: {', '.join(missing_cols)}"
         
         df['ds'] = pd.to_datetime(df['ds'])
+        df = df[required_cols]
         df = df.sort_values(['unique_id', 'ds']).reset_index(drop=True)
         
         # Check for NaN values
