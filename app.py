@@ -1256,7 +1256,16 @@ with gr.Blocks(title="Time Series Forecasting App", theme=theme) as app:
             use_autoets, use_autoarima, use_timegpt, finetune_loss, confidence_level,
             future_horizon
         ],
-        outputs=[eval_output, validation_output, validation_plot, forecast_output, forecast_plot, export_files, message_output]
+        outputs=[
+            eval_output, 
+            validation_output.round({
+                col: 2 
+                for col in eval_output.columns[3:]}), 
+            validation_plot, 
+            forecast_output, 
+            forecast_plot, 
+            export_files, 
+            message_output]
     )
 
 if __name__ == "__main__":
