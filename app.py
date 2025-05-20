@@ -295,9 +295,29 @@ def run_forecast(
                     finetune_loss=finetune_loss
                 )
                 
-                # Combine results
+                
+                # Combine results - using merge instead of concat to avoid duplicate rows
                 if not combined_eval_df.empty and not timegpt_eval_df.empty:
-                    combined_eval_df = pd.concat([combined_eval_df, timegpt_eval_df], ignore_index=True)
+                    # Get common columns for the join
+                    join_columns = ['unique_id', 'metric']
+                    # Merge the dataframes on unique_id and metric
+                    combined_eval_df = pd.merge(
+                        combined_eval_df, 
+                        timegpt_eval_df,
+                        on=join_columns,
+                        how='outer',
+                        suffixes=('', '_timegpt')
+                    )
+                    
+                    # Clean up any duplicated columns from the merge
+                    for col in combined_eval_df.columns:
+                        if col.endswith('_timegpt'):
+                            base_col = col.replace('_timegpt', '')
+                            # Fill NaN values in the original column with values from the _timegpt column
+                            if base_col in combined_eval_df.columns:
+                                combined_eval_df[base_col] = combined_eval_df[base_col].fillna(combined_eval_df[col])
+                            # Remove the _timegpt column
+                            combined_eval_df = combined_eval_df.drop(columns=[col])
                 else:
                     combined_eval_df = timegpt_eval_df if not timegpt_eval_df.empty else combined_eval_df
                 
@@ -956,7 +976,8 @@ with gr.Blocks(title="Time Series Forecasting App", theme=theme) as app:
             with gr.Accordion("Data & Validation Settings", open=True):
                 frequency = gr.Dropdown(
                     choices=[
-                        ("Hourly", "H"), 
+                        ("Hourly", "H"),
+                        ("Business Day", "B"),
                         ("Daily", "D"), 
                         ("Weekly", "WS"), 
                         ("Monthly", "MS"), 
@@ -964,7 +985,7 @@ with gr.Blocks(title="Time Series Forecasting App", theme=theme) as app:
                         ("Yearly", "YS")
                     ], 
                     label="Data Frequency", 
-                    value="D"
+                    value="B"
                 )
                 
                 # Evaluation Strategy
@@ -1012,17 +1033,17 @@ with gr.Blocks(title="Time Series Forecasting App", theme=theme) as app:
                         
                         gr.Markdown("### Window-based Models")
                         with gr.Row():
-                            use_window_avg = gr.Checkbox(label="Window Average", value=True)
+                            use_window_avg = gr.Checkbox(label="Window Average", value=False)
                             window_size = gr.Number(label="Window Size", value=10)
                         
                         with gr.Row():
-                            use_seasonal_window_avg = gr.Checkbox(label="Seasonal Window Average", value=True)
+                            use_seasonal_window_avg = gr.Checkbox(label="Seasonal Window Average", value=False)
                             seasonal_window_size = gr.Number(label="Seasonal Window Size", value=2)
                         
                         gr.Markdown("### Advanced Models (use seasonality from above)")
                         with gr.Row():
-                            use_autoets = gr.Checkbox(label="AutoETS (Exponential Smoothing)", value=True)
-                            use_autoarima = gr.Checkbox(label="AutoARIMA", value=True)
+                            use_autoets = gr.Checkbox(label="AutoETS (Exponential Smoothing)", value=False)
+                            use_autoarima = gr.Checkbox(label="AutoARIMA", value=False)
                     
                     # Transformer Models Tab (TimeGPT)
                     with gr.TabItem("Transformer Models"):
@@ -1030,7 +1051,7 @@ with gr.Blocks(title="Time Series Forecasting App", theme=theme) as app:
                         gr.Markdown("TimeGPT uses a transformer architecture for state-of-the-art time series forecasting")
                         
                         with gr.Row():
-                            use_timegpt = gr.Checkbox(label="Use TimeGPT", value=False)
+                            use_timegpt = gr.Checkbox(label="Use TimeGPT", value=True)
                         
                         with gr.Group():
                             gr.Markdown("### TimeGPT Configuration")
