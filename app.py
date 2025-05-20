@@ -45,13 +45,37 @@ def load_data(file):
     except Exception as e:
         return None, f"Error loading data: {str(e)}"
 
-# Function to generate and return a plot
-def create_forecast_plot(forecast_df, original_df, title="Forecasting Results"):
+# Helper function to calculate date offset based on frequency and horizon
+def calculate_date_offset(freq, horizon):
+    """Calculate a timedelta based on frequency code and horizon"""
+    if freq == 'H':
+        return pd.Timedelta(hours=horizon)
+    elif freq == 'D':
+        return pd.Timedelta(days=horizon)
+    elif freq == 'B':
+        # For business days, use approximately 1.4x multiplier to account for weekends
+        return pd.Timedelta(days=int(horizon * 1.4))
+    elif freq == 'WS':
+        return pd.Timedelta(weeks=horizon)
+    elif freq == 'MS':
+        return pd.Timedelta(days=horizon * 30)  # Approximate
+    elif freq == 'QS':
+        return pd.Timedelta(days=horizon * 90)  # Approximate
+    elif freq == 'YS':
+        return pd.Timedelta(days=horizon * 365)  # Approximate
+    else:
+        # Default fallback
+        return pd.Timedelta(days=horizon)
+
+# Function to generate and return a plot for validation results
+def create_forecast_plot(forecast_df, original_df, title="Forecasting Results", horizon=None, freq='D'):
     plt.figure(figsize=(12, 7))
     unique_ids = forecast_df['unique_id'].unique()
-    forecast_cols = [col for col in forecast_df.columns if col not in ['unique_id', 'ds', 'cutoff']]
+    forecast_cols = [col for col in forecast_df.columns if col not in ['unique_id', 'ds', 'cutoff', 'y']]
     
     colors = plt.cm.tab10.colors
+    
+    # Track min and max dates for x-axis limits
     min_cutoff = None
     
     for i, unique_id in enumerate(unique_ids):
@@ -59,20 +83,62 @@ def create_forecast_plot(forecast_df, original_df, title="Forecasting Results"):
         plt.plot(original_data['ds'], original_data['y'], 'k-', linewidth=2, label=f'{unique_id} (Actual)')
         
         forecast_data = forecast_df[forecast_df['unique_id'] == unique_id]
+        
+        # Find the earliest cutoff date if available
+        if 'cutoff' in forecast_data.columns:
+            cutoffs = pd.to_datetime(forecast_data['cutoff'].unique())
+            if len(cutoffs) > 0:
+                earliest_cutoff = cutoffs.min()
+                if min_cutoff is None or earliest_cutoff < min_cutoff:
+                    min_cutoff = earliest_cutoff
+                
+                # Add vertical line at each cutoff
+                for cutoff in cutoffs:
+                    plt.axvline(x=cutoff, color='gray', linestyle='--', alpha=0.4)
+        
+        # Plot main prediction lines
         for j, col in enumerate(forecast_cols):
             if col in forecast_data.columns:
+                # Clean up model name for legend
+                model_name = col.replace('_', ' ').title()
+                if model_name == 'Timegpt':
+                    model_name = 'TimeGPT'
+                
                 plt.plot(forecast_data['ds'], forecast_data[col], 
                          color=colors[j % len(colors)], 
                          linestyle='--', 
                          linewidth=1.5,
-                         label=f'{col}')
+                         label=f'{model_name}')
 
     plt.title(title, fontsize=16)
     plt.xlabel('Date', fontsize=12)
     plt.ylabel('Value', fontsize=12)
     plt.grid(True, alpha=0.3)
-    plt.legend(loc='best')
-    plt.tight_layout()
+    
+    # Better legend with smaller font and outside placement
+    plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=3, fontsize=10)
+    plt.tight_layout(rect=[0, 0.05, 1, 0.95])  # Adjust layout to make room for legend
+    
+    # Set x-axis limits based on cutoff and horizon
+    if min_cutoff is not None and horizon is not None:
+        # Calculate date offset based on frequency and horizon
+        date_offset = calculate_date_offset(freq, horizon)
+        
+        # Calculate start date as 'horizon' units before the first cutoff
+        start_date = min_cutoff - date_offset
+        
+        # Find max date from forecast
+        max_date = forecast_df['ds'].max()
+        
+        plt.xlim(start_date, max_date)
+        
+        # Add an annotation for the training/test split
+        plt.annotate('Training | Test', 
+                     xy=(min_cutoff, plt.ylim()[0]),
+                     xytext=(0, -40),
+                     textcoords='offset points',
+                     horizontalalignment='center',
+                     fontsize=10)
     
     # Format date labels better
     fig = plt.gcf()
@@ -82,12 +148,17 @@ def create_forecast_plot(forecast_df, original_df, title="Forecasting Results"):
     return fig
 
 # Function to create a plot for future forecasts
-def create_future_forecast_plot(forecast_df, original_df):
+def create_future_forecast_plot(forecast_df, original_df, horizon=None, freq='D'):
     plt.figure(figsize=(12, 7))
     unique_ids = forecast_df['unique_id'].unique()
     forecast_cols = [col for col in forecast_df.columns if col not in ['unique_id', 'ds']]
     
     colors = plt.cm.tab10.colors
+    
+    # Track the forecast start date (min of forecast data)
+    forecast_start = None
+    if not forecast_df.empty:
+        forecast_start = pd.to_datetime(forecast_df['ds'].min())
     
     for i, unique_id in enumerate(unique_ids):
         # Plot historical data
@@ -102,20 +173,61 @@ def create_future_forecast_plot(forecast_df, original_df):
             forecast_start = forecast_data['ds'].min()
             plt.axvline(x=forecast_start, color='gray', linestyle='--', alpha=0.5)
             
+            # Add a shaded area for the forecast period
+            plt.axvspan(forecast_start, forecast_data['ds'].max(), alpha=0.1, color='blue')
+            
+            # Annotate the split point
+            plt.annotate('Historical | Forecast', 
+                         xy=(forecast_start, plt.ylim()[0]),
+                         xytext=(0, -40),
+                         textcoords='offset points',
+                         horizontalalignment='center',
+                         fontsize=10)
+        
+        # Plot main prediction lines
         for j, col in enumerate(forecast_cols):
             if col in forecast_data.columns:
+                # Clean up model name for legend
+                model_name = col.replace('_', ' ').title()
+                if model_name == 'Timegpt':
+                    model_name = 'TimeGPT'
+                
                 plt.plot(forecast_data['ds'], forecast_data[col], 
                          color=colors[j % len(colors)], 
                          linestyle='--', 
                          linewidth=1.5,
-                         label=f'{col}')
+                         label=f'{model_name}')
 
     plt.title('Future Forecast', fontsize=16)
     plt.xlabel('Date', fontsize=12)
     plt.ylabel('Value', fontsize=12)
     plt.grid(True, alpha=0.3)
-    plt.legend(loc='best')
-    plt.tight_layout()
+    
+    # Better legend with smaller font and outside placement
+    plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=3, fontsize=10)
+    plt.tight_layout(rect=[0, 0.05, 1, 0.95])  # Adjust layout to make room for legend
+    
+    # Set x-axis limits based on forecast start and horizon
+    if forecast_start is not None and horizon is not None:
+        # Calculate date offset based on frequency and horizon
+        date_offset = calculate_date_offset(freq, horizon)
+        
+        # Calculate start date as 'horizon' units before the forecast start
+        start_date = forecast_start - date_offset
+        
+        # Get the last date from historical data that's before or at the start_date
+        historical_dates = pd.to_datetime(original_df['ds'])
+        historical_dates_before_start = historical_dates[historical_dates <= start_date]
+        
+        if not historical_dates_before_start.empty:
+            # Use the last available date in the historical data that's before our calculated start_date
+            adjusted_start_date = historical_dates_before_start.max()
+        else:
+            # Fallback to using the original start_date
+            adjusted_start_date = start_date
+        
+        # Set the x-axis limits
+        plt.xlim(adjusted_start_date, forecast_df['ds'].max())
     
     # Format date labels better
     fig = plt.gcf()
