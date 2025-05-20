@@ -338,6 +338,7 @@ def run_forecast(
                 cv_results = sf.cross_validation(df=df, h=horizon, step_size=step_size, n_windows=num_windows)
                 evaluation = evaluate(df=cv_results, metrics=[bias, mae, rmse, mape], models=model_aliases)
                 eval_df = pd.DataFrame(evaluation).reset_index()
+                eval_df = eval_df.round({col: 2 for col in eval_df.columns[3:]})
             else:  # Fixed window
                 cv_results = sf.cross_validation(df=df, h=horizon, step_size=10, n_windows=1)  # any step size for 1 window
                 evaluation = evaluate(df=cv_results, metrics=[bias, mae, rmse, mape], models=model_aliases)
@@ -349,7 +350,7 @@ def run_forecast(
             # Store results
             combined_eval_df = eval_df.copy() if eval_df is not None else pd.DataFrame()
             combined_cv_results = cv_results.copy() if cv_results is not None else pd.DataFrame()
-            combined_cv_results = combined_cv_results.round({col: 2 for col in combined_cv_results.columns[3:]})
+            combined_cv_results = combined_cv_results
             combined_future_forecasts = future_forecasts.copy() if future_forecasts is not None else pd.DataFrame()
         
         # Run TimeGPT if selected
