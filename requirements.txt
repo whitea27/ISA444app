@@ -7,3 +7,4 @@ nixtla
 statsforecast
 utilsforecast
 coreforecast
+timecopilot
